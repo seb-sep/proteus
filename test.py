@@ -1,11 +1,12 @@
 import time
+import cProfile
+import pstats
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.fx import GraphModule
 from torch.export import export
-import numpy as np
 
 import mlx
 import mlx.core as mx
@@ -13,7 +14,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from tqdm import tqdm
 
-from proteus import proteus, aten_opset_compiler, coerce_torch_to_mx
+from src.proteus import proteus
+from src.utils import aten_opset_compiler, coerce_mx_to_torch, coerce_torch_to_mx
 
 
 class TestModule(nn.Module):
@@ -44,35 +46,77 @@ def cool_mlx_fn(primals_1, primals_2, primals_3):
     t_1 = mx.transpose(primals_3)
     mm_1 = mx.matmul(triu, t_1)
     sin = mx.sin(mm_1)
-    return (sin,)
+    return (mx.eval(sin),)
 
 
 def test():
-    in_dim, h_dim, out_dim = 4, 4, 4
+    in_dim, h_dim, out_dim = 4092, 2048, 256
+    # in_dim, h_dim, out_dim = 4, 4, 4
     model = TestModule(in_dim, h_dim, out_dim)
-    test_input = torch.rand((4, in_dim))
+    test_input = torch.rand((in_dim, in_dim))
     mlx_input = coerce_torch_to_mx(test_input)
-    mlx_p1, mlx_p2 = tuple(coerce_torch_to_mx(p) for p in model.parameters())
-    for k, v in model.named_parameters():
-        print(k, v)
+    # for k, v in model.named_parameters():
+    #     print(k, v)
 
-    m = torch.compile(model, backend=proteus)
-    # print(f"MLX compiled model output: {m(test_input)}")
+    # m = torch.compile(model, backend=proteus)
+    # _ = aot_export_module(model, test_input, trace_joint=False)
+    m = proteus(model, test_input)
+    print(f"MLX compiled model output: {coerce_mx_to_torch(m(test_input))}")
     print(f"Original PyTorch model output: {model(test_input)}")
 
-    n_iters = 10000
+    n_iters = 100
     start = time.time()
     for _ in tqdm(range(n_iters)):
         _ = model(test_input)
     stop = time.time()
     print(f"uncompiled model: {n_iters} iters in {stop-start} s")
 
+    mlx_p1, mlx_p2 = tuple(
+        coerce_torch_to_mx(tensor) for _, tensor in model.named_parameters()
+    )
     start = time.time()
     for _ in tqdm(range(n_iters)):
-        _ = m(test_input)
+        _ = m(mlx_input)
         # _ = cool_mlx_fn(mlx_input, mlx_p1, mlx_p2)
     stop = time.time()
     print(f"compiled model: {n_iters} iters in {stop-start} s")
+
+
+def prof_compiled():
+    in_dim, h_dim, out_dim = 4, 4, 4
+    model = TestModule(in_dim, h_dim, out_dim)
+    test_input = torch.rand((4, in_dim))
+    m = proteus(model, test_input)
+    mlx_input = coerce_torch_to_mx(test_input)
+
+    for _ in range(100000):
+        _ = m(mlx_input)
+
+
+def prof_mlx():
+    in_dim, h_dim, out_dim = 4, 4, 4
+    model = TestModule(in_dim, h_dim, out_dim)
+    test_input = torch.rand((4, in_dim))
+    mlx_input = coerce_torch_to_mx(test_input)
+    mlx_p1, mlx_p2 = tuple(
+        coerce_torch_to_mx(tensor) for _, tensor in model.named_parameters()
+    )
+    for _ in range(100000):
+        _ = cool_mlx_fn(mlx_input, mlx_p1, mlx_p2)
+
+
+def cprof_compiled():
+    cProfile.run("prof_compiled()", "compiled_res")
+    print()
+    cProfile.run("prof_mlx()", "mlx_res")
+    print_profile_stats("compiled_res")
+    print_profile_stats("mlx_res")
+
+
+def print_profile_stats(profile_path: str):
+    print(f"\nTop 10 slowest functions for {profile_path}:")
+    p = pstats.Stats(profile_path)
+    p.strip_dirs().sort_stats("cumulative").print_stats(50)
 
 
 def compile_llama():
@@ -103,4 +147,35 @@ def compile_llama():
     _ = compiled_graph(test_in["input_ids"], attention_mask=test_in["attention_mask"])
 
 
+def simple_speed_test():
+    a = torch.randn((4092, 4092))
+    b = torch.randn((4092, 4092))
+
+    a_m = coerce_torch_to_mx(a)
+    b_m = coerce_torch_to_mx(b)
+
+    a.to("mps")
+    b.to("mps")
+
+    mx.set_default_device(mx.gpu)
+    mx.set_default_stream(mx.default_stream(mx.default_device()))
+    start = time.time()
+    c_m = mx.matmul(a_m, b_m)
+    for _ in range(1000):
+        c_m = mx.matmul(c_m, b_m)
+    mx.eval(c_m)
+    end = time.time()
+    print(f"mlx in {end - start} s")
+
+    start = time.time()
+    c = a @ b
+    for _ in range(1000):
+        c = c @ b
+    torch.mps.synchronize()
+    end = time.time()
+    print(f"pt in {end - start} s")
+
+
+# cprof_compiled()
+# simple_speed_test()
 test()

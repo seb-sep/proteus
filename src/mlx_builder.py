@@ -8,7 +8,7 @@ from torch import fx
 import mlx.core as mx
 import mlx.nn as nn
 
-from arg_marshalers import passthrough_arg_marshaler
+from src.arg_marshalers import passthrough_arg_marshaler
 
 
 _fn_mapping = {
