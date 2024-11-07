@@ -10,22 +10,24 @@ import mlx.nn as nn
 
 from src.arg_marshalers import passthrough_arg_marshaler
 
+aten = torch.ops.aten
 
 _fn_mapping = {
-    torch.ops.aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
-    torch.ops.aten.t.default: (mx.transpose, passthrough_arg_marshaler),
-    torch.ops.aten.transpose.int: (mx.transpose, passthrough_arg_marshaler),
-    torch.ops.aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
-    torch.ops.aten.silu.default: (nn.silu, passthrough_arg_marshaler),
-    torch.ops.aten.triu.default: (mx.triu, passthrough_arg_marshaler),
-    torch.ops.aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
-    torch.ops.aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
-    torch.ops.aten.gt.Tensor: (mx.greater, passthrough_arg_marshaler),
-    torch.ops.aten.neg.default: (mx.negative, passthrough_arg_marshaler),
-    torch.ops.aten.cos.default: (mx.cos, passthrough_arg_marshaler),
-    torch.ops.aten.sin.default: (mx.sin, passthrough_arg_marshaler),
-    torch.ops.aten.rsqrt.default: (mx.rsqrt, passthrough_arg_marshaler),
-    torch.ops.aten.cat.default: (mx.concatenate, passthrough_arg_marshaler),
+    aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
+    aten.t.default: (mx.transpose, passthrough_arg_marshaler),
+    aten.transpose.int: (mx.transpose, passthrough_arg_marshaler),
+    aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
+    aten.relu.default: (nn.relu, passthrough_arg_marshaler),
+    aten.silu.default: (nn.silu, passthrough_arg_marshaler),
+    aten.triu.default: (mx.triu, passthrough_arg_marshaler),
+    aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
+    aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
+    aten.gt.Tensor: (mx.greater, passthrough_arg_marshaler),
+    aten.neg.default: (mx.negative, passthrough_arg_marshaler),
+    aten.cos.default: (mx.cos, passthrough_arg_marshaler),
+    aten.sin.default: (mx.sin, passthrough_arg_marshaler),
+    aten.rsqrt.default: (mx.rsqrt, passthrough_arg_marshaler),
+    aten.cat.default: (mx.concatenate, passthrough_arg_marshaler),
 }
 
 
@@ -46,7 +48,7 @@ def aten_to_mlx(
 
 
 def fn_to_manual_module(fn: Callable) -> List[str]:
-    return {nn.silu: ["mlx", "nn", "silu"]}[fn]
+    return {nn.silu: ["mlx", "nn", "silu"], nn.relu: ["mlx", "nn", "relu"]}[fn]
 
 
 def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:

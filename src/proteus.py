@@ -55,15 +55,20 @@ class MLXCompiledModule:
         # if you've already compiled to an mlx fn, then you need to pass the input tensors to MLX as mlx arrays
         if self.mlx_mode:
             args = [coerce_torch_to_mx(tensor) for tensor in args]
-        return self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
+            return self.compiled_fn(
+                self.named_params, self.named_buffers, *args, **kwargs
+            )
+        else:
+            self.mlx_update(*args, **kwargs)
+            return self(*args, **kwargs)
 
-    def mlx_update(self, sample_inputs):
+    def mlx_update(self, *args, **kwargs):
         """
         Compile the function on the given sample inputs and prepare the module
         for inference with the MLX function.
         """
         # prompt compilation on sample inputs
-        _ = self.compiled_fn(self.named_params, self.named_buffers, sample_inputs)
+        _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
 
         # After the pytorch tensors were used for compilation, convert them
         # to MLX arrays for use in the final fn
@@ -126,19 +131,29 @@ def mlx_compiler(gm: fx.GraphModule, _):
     # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
     # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
     def torch_wrapper(*args):
-        outs = mlx_fn(*_coerce_args_to_mlx(args))
+        mlx_args = _coerce_args_to_mlx(args)
+        outs = mlx_fn(*mlx_args)
+        # pprint(outs)
         return tuple(coerce_mx_to_torch(out) for out in outs)
 
     return torch_wrapper
 
 
-def proteus(mod: nn.Module, sample_inputs):
+def proteus(mod: nn.Module):
+    """
+    Compile an eagerly computing PyTorch module to a function which computes in MLX under the hood.
+    """
 
     # HUGE DISCOVERY: to raise the inputs, you literally just get mod.named_parameters() and mod.named_buffers(), turn into a single dict,
     # and pytree flatten
     # This is guaranteed to produce the same ordering each time
     # the following is shamelessly pulled from aot autograd source code
     # https://github.com/pytorch/pytorch/blob/3d3551506d4acccdd06d6f98eaf05e5288d254b3/torch/_functorch/aot_autograd.py#L1190
+
+    # print(f"{len(sample_inputs)} sample inputs:")
+    # pprint(sample_inputs)
+    # mod.print_readable()
+    # exit()
 
     def functional_call(named_params, named_buffers, *args, **kwargs):
         params_and_buffers = {**named_params, **named_buffers}
@@ -157,5 +172,4 @@ def proteus(mod: nn.Module, sample_inputs):
         dynamic=True,
     )
     compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
-    compiled_mod.mlx_update(sample_inputs)
     return compiled_mod

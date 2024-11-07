@@ -29,6 +29,7 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     Convert an MLX array into a PyTorch tensor.
     Note that this currently COPIES the tensor, so use sparingly.
     """
+    # print(type(val))
     return torch.tensor(np.array(val))
 
 
