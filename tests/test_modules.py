@@ -34,6 +34,8 @@ class TestModule(nn.Module):
         x = self.fc1(x)
         x = F.silu(x)
         x = torch.triu(x)
+        if x[0][0] == 0:
+            return x
         x = self.fc2(x)
         x = torch.sin(x)
         return x

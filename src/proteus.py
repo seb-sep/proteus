@@ -4,8 +4,9 @@ from pprint import pprint
 import torch.nn as nn
 import torch.fx as fx
 import torch
-from functorch.compile import aot_function
+from functorch.compile import aot_function, aot_module_simplified
 import torch.utils._pytree as pytree
+import torch._dynamo as dynamo
 
 import mlx.core as mx
 
@@ -53,11 +54,14 @@ class MLXCompiledModule:
 
     def __call__(self, *args, **kwargs):
         # if you've already compiled to an mlx fn, then you need to pass the input tensors to MLX as mlx arrays
+        print(self.compiled_fn)
         if self.mlx_mode:
             args = [coerce_torch_to_mx(tensor) for tensor in args]
-            return self.compiled_fn(
-                self.named_params, self.named_buffers, *args, **kwargs
-            )
+            kwargs = {k: coerce_torch_to_mx(v) for k, v in kwargs.items()}
+            # return self.compiled_fn(
+            #     self.named_params, self.named_buffers, *args, **kwargs
+            # )
+            return self.compiled_fn(*args, **kwargs)
         else:
             self.mlx_update(*args, **kwargs)
             return self(*args, **kwargs)
@@ -68,10 +72,14 @@ class MLXCompiledModule:
         for inference with the MLX function.
         """
         # prompt compilation on sample inputs
-        _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
+        # print(args, kwargs)
+        print("invoking compiled fn")
+        # _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
+        _ = self.compiled_fn(*args, **kwargs)
 
         # After the pytorch tensors were used for compilation, convert them
         # to MLX arrays for use in the final fn
+        print("coercing params to mlx")
         self.named_params = {
             k: coerce_torch_to_mx(v) for k, v in self.named_params.items()
         }
@@ -79,7 +87,7 @@ class MLXCompiledModule:
             k: coerce_torch_to_mx(v) for k, v in self.named_buffers.items()
         }
         self.mlx_mode = True
-        _coerce_args_to_mlx.disable_coercion()
+        # _coerce_args_to_mlx.disable_coercion()
 
 
 def params_to_mlx(mod: nn.Module) -> List[mx.array]:
@@ -104,12 +112,20 @@ def params_to_mlx(mod: nn.Module) -> List[mx.array]:
 first_compile = False
 
 
+def to_aten_compiler(gm: fx.GraphModule, sample_inputs):
+    print("to aten compiler")
+    fn = aot_module_simplified(gm, sample_inputs, mlx_compiler)
+    return fn
+
+
 # Close over the mlx_params to pass in the final compiled fn
 def mlx_compiler(gm: fx.GraphModule, _):
     """
     Compile the given FX graph of aten ops into a Python function
     calling MLX operations. Second argument is for matching the signature expected by AOTAutograd.
     """
+
+    gm.print_readable()
 
     builder = MLXASTBuilder()
     for node in gm.graph.nodes:
@@ -121,7 +137,8 @@ def mlx_compiler(gm: fx.GraphModule, _):
             # the first value in args for output is what to actually return from the graph i think,
             # we might actually only care about the first value in that tuple
             # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
-            builder.addReturn(node.args[0][0])
+            # builder.addReturn(node.args[0][0])
+            builder.addReturn(node.args[0])
         else:
             raise ValueError(f"unhandled node type: node {node}")
 
@@ -132,6 +149,7 @@ def mlx_compiler(gm: fx.GraphModule, _):
     # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
     def torch_wrapper(*args):
         mlx_args = _coerce_args_to_mlx(args)
+        print(mlx_args)
         outs = mlx_fn(*mlx_args)
         # pprint(outs)
         return tuple(coerce_mx_to_torch(out) for out in outs)
@@ -155,8 +173,12 @@ def proteus(mod: nn.Module):
     # mod.print_readable()
     # exit()
 
+    # of COURSE this will proc when using torch compile: it can handle graph breaks
+    # so it will preserve the full Python semantics instead of just swapping out
+    # for a full graph, which IS the behavior you want
     def functional_call(named_params, named_buffers, *args, **kwargs):
         params_and_buffers = {**named_params, **named_buffers}
+        print("running functional call")
         return torch.func.functional_call(mod, params_and_buffers, args, kwargs)
 
     # Hold onto these for the FIRST tracing call, then swap out with the MLXified args
@@ -165,11 +187,14 @@ def proteus(mod: nn.Module):
     num_params_buffers = len(named_params) + len(named_buffers)
 
     # I want to use aot_function so I have control over how the inputs are raised and passed
-    compiled_fn = aot_function(
-        functional_call,
-        fw_compiler=mlx_compiler,
-        num_params_buffers=num_params_buffers,
-        dynamic=True,
-    )
-    compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
-    return compiled_mod
+    # compiled_fn = aot_function(
+    #     functional_call,
+    #     fw_compiler=mlx_compiler,
+    #     num_params_buffers=num_params_buffers,
+    #     dynamic=True,
+    # )
+    # dynamo.optimize
+    compiled_fn = torch.compile(mod, backend=to_aten_compiler)
+    # compiled_fn = to_aten_compiler()
+    # compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
+    return compiled_fn

@@ -14,16 +14,22 @@ def passthrough_arg_marshaler(
     # remember that your arg names are just SSA values from the fx graph so just take the name
     # and assume its already been registered as a variable somewhere in the AST
     ast_args = []
+    print(args)
     for arg in args:
         if isinstance(arg, fx.Node):
             ast_args.append(ast.Name(id=arg.name, ctx=ast.Load()))
-        elif isinstance(arg, fx.immutable_collections.immutable_list):
+        elif isinstance(arg, (fx.immutable_collections.immutable_list, tuple, int)):
             # TODO: This is as SUPER hacky way to get the list
             parsed = ast.parse(repr(arg))
+            print(parsed)
             if isinstance(parsed.body[0], ast.Expr):
                 ast_args.append(parsed.body[0].value)
             else:
-                raise ValueError(f"Unexpected AST structure for argument: {arg}")
+                raise ValueError(f"Failed to parse fx immutable list {parsed}")
+        else:
+            raise ValueError(
+                f"Unexpected AST structure for argument: {arg} of type {type(arg)}"
+            )
 
     # Convert kwargs to ast.keyword nodes
     ast_kwargs = [
@@ -32,6 +38,16 @@ def passthrough_arg_marshaler(
     ]
 
     return ast_args, ast_kwargs
+
+
+def take_arg_marshaler(
+    args: List, kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs from torch.select to mx.take."""
+
+    # Keep the tensor arg passed first, but swap the subsequent dim and index args
+
+    return passthrough_arg_marshaler((args[0], args[2], args[1]), kwargs)
 
 
 # def cat_marshaler(args: List, kwargs: Dict) -> Tuple[List[ast.AST], List[ast.keyword]]:

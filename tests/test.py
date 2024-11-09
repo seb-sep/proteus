@@ -8,6 +8,7 @@ from torch.export import export
 
 import mlx.core as mx
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from diffusers import StableDiffusion3Pipeline
 
 from tqdm import tqdm
 
@@ -18,15 +19,18 @@ from tests.test_modules import TestModule, cool_mlx_fn, SimpleTransformer, Simpl
 
 def test():
     in_dim, h_dim, out_dim = 4092, 2048, 256
-    # model = TestModule(in_dim, h_dim, out_dim)
-    model = SimpleModule(in_dim, h_dim, out_dim)
+    model = TestModule(in_dim, h_dim, out_dim)
+    # model = SimpleModule(in_dim, h_dim, out_dim)
     test_input = torch.rand((16, in_dim))
     mlx_input = coerce_torch_to_mx(test_input)
     # for k, v in model.named_parameters():
     #     print(k, v)
 
     m = proteus(model)
-    print(f"MLX compiled model output: {coerce_mx_to_torch(m(test_input))}")
+    out = m(test_input)
+    print(out)
+
+    # print(f"MLX compiled model output: {coerce_mx_to_torch(m(test_input))}")
     print(f"Original PyTorch model output: {model(test_input)}")
     exit()
 
@@ -98,9 +102,25 @@ def compile_llama():
 
     # use export().run_decompositions() to get core aten ir graph
     # without lifing model params into inputs
-    compiled = torch.compile(model, backend=proteus)
-    # compiled_graph = torch.compile(model, backend=aten_opset_compiler)
-    _ = compiled(test_in["input_ids"], attention_mask=test_in["attention_mask"])
+    # compiled = proteus(model)
+    compiled_graph = torch.compile(model, backend=aten_opset_compiler)
+    _ = compiled_graph(test_in["input_ids"], attention_mask=test_in["attention_mask"])
+
+
+def compile_sd():
+
+    pipe = StableDiffusion3Pipeline.from_pretrained(
+        "stabilityai/stable-diffusion-3.5-medium", torch_dtype=torch.bfloat16
+    )
+    pipe = pipe.to("mps")
+    compiled_pipe = torch.compile(pipe, backend=aten_opset_compiler)
+
+    image = compiled_pipe(
+        "A capybara holding a sign that reads Hello World",
+        num_inference_steps=10,
+        guidance_scale=4.5,
+    ).images[0]
+    image.save("capybara.png")
 
 
 def simple_speed_test():

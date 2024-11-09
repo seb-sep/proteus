@@ -2,7 +2,11 @@ import mlx.core as mx
 
 import torch
 import torch.fx as fx
-from torch._functorch.aot_autograd import aot_module_simplified, aot_export_module
+from torch._functorch.aot_autograd import (
+    aot_module_simplified,
+    aot_export_module,
+    aot_function,
+)
 
 import numpy as np
 
@@ -51,4 +55,6 @@ def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):
 
         return gm.forward
 
-    return aot_module_simplified(gm, sample_inputs, fw_compiler=foo)
+    fn = aot_function(gm, fw_compiler=foo)
+    _ = fn(*sample_inputs)
+    return fn

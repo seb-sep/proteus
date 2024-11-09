@@ -8,7 +8,7 @@ from torch import fx
 import mlx.core as mx
 import mlx.nn as nn
 
-from src.arg_marshalers import passthrough_arg_marshaler
+from src.arg_marshalers import passthrough_arg_marshaler, take_arg_marshaler
 
 aten = torch.ops.aten
 
@@ -28,6 +28,8 @@ _fn_mapping = {
     aten.sin.default: (mx.sin, passthrough_arg_marshaler),
     aten.rsqrt.default: (mx.rsqrt, passthrough_arg_marshaler),
     aten.cat.default: (mx.concatenate, passthrough_arg_marshaler),
+    aten.select.int: (mx.take, take_arg_marshaler),
+    aten.eq.Scalar: (mx.equal, passthrough_arg_marshaler),
 }
 
 
@@ -47,8 +49,12 @@ def aten_to_mlx(
         raise KeyError(aten_op)
 
 
-def fn_to_manual_module(fn: Callable) -> List[str]:
-    return {nn.silu: ["mlx", "nn", "silu"], nn.relu: ["mlx", "nn", "relu"]}[fn]
+def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
+    return {
+        nn.silu: ["mlx", "nn", "silu"],
+        nn.relu: ["mlx", "nn", "relu"],
+        mx.array.__getitem__: ["mlx", "core", "array", "__getitem__"],
+    }.get(fn, None)
 
 
 def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:
@@ -58,9 +64,8 @@ def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:
     """
     # use inspect.getmodule().__name__ to map these callables to the right AST attr
     # for example, module_strs might be ['mlx', 'linalg', 'matmul']
-    if getmodule(fn) is None:
-        module_strs = fn_to_manual_module(fn)
-    else:
+    module_strs = fn_to_manual_module(fn)
+    if not module_strs:
         module_strs = getmodule(fn).__name__.split(".") + [fn.__name__]
 
     attr_ast = ast.Name(id=module_strs.pop(0), ctx=ast.Load())
@@ -87,7 +92,6 @@ class MLXASTBuilder:
 
         # ast.Load() means you're reading the value of the name, not setting or deleting it
         mlx_fn, arg_marshaler = aten_to_mlx(aten_op, self.device)
-        print(mlx_fn)
 
         # Convert args to ast.Name nodes
         ast_args, ast_kwargs = arg_marshaler(args, kwargs)
@@ -109,27 +113,28 @@ class MLXASTBuilder:
         Add an argument of the given name to the args
         of the top level function to return.
         """
-        print(f"adding arg {arg_name}")
         self.in_args.append(ast.arg(arg=arg_name))
 
-    def addReturn(self, arg: str):
+    # def addReturn(self, arg: str):
+    def addReturn(self, args: tuple):
         """
         Add a return to the end of the AST with the given variable name.
         NOTE: currently return only one value, even though you do it as a tuple
         """
-        if isinstance(arg, fx.Node):
-            # If arg is a torch.fx.Node, use its name attribute
-            name = arg.name
-        else:
-            # If arg is not a torch.fx.Node, assume it's a string as before
-            name = arg
+        names = []
+        for arg in args:
+            if isinstance(arg, fx.Node):
+                # If arg is a torch.fx.Node, use its name attribute
+                names.append(arg.name)
+            else:
+                # If arg is not a torch.fx.Node, assume it's a string as before
+                names.append(arg)
         self.ret = ast.Return(
             value=ast.Tuple(
-                elts=[ast.Name(id=arg, ctx=ast.Load()) for arg in [name]],
+                elts=[ast.Name(id=arg, ctx=ast.Load()) for arg in names],
                 ctx=ast.Load(),
             )
         )
-        print(f"returning id {name}")
 
     def export(self) -> Callable:
         """Turn the accumulated AST into a Python callable."""
