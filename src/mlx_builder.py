@@ -9,6 +9,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from src.arg_marshalers import passthrough_arg_marshaler, take_arg_marshaler
+from src.custom_ops import linear
 
 aten = torch.ops.aten
 
@@ -30,6 +31,8 @@ _fn_mapping = {
     aten.cat.default: (mx.concatenate, passthrough_arg_marshaler),
     aten.select.int: (mx.take, take_arg_marshaler),
     aten.eq.Scalar: (mx.equal, passthrough_arg_marshaler),
+    aten.embedding.default: (mx.array.__getitem__, passthrough_arg_marshaler),
+    aten.linear.default: (linear.linear, passthrough_arg_marshaler),
 }
 
 
@@ -81,7 +84,10 @@ class MLXASTBuilder:
         # input names to top level mlx function to generate
         self.in_args: List[ast.arg] = []
         # import mlx.core as mx
-        self.mlx_import = ast.Import(names=[ast.alias(name="mlx", asname=None)])
+        self.imports = [
+            ast.Import(names=[ast.alias(name="mlx", asname=None)]),
+            ast.Import(names=[ast.alias(name="src", asname=None)]),
+        ]
         # mlx function calls in order of execution
         self.calls: List[ast.Call] = []
         self.device = mx.default_device()
@@ -153,7 +159,7 @@ class MLXASTBuilder:
             decorator_list=[],
         )
 
-        module = ast.Module(body=[self.mlx_import, mlx_func], type_ignores=[])
+        module = ast.Module(body=self.imports + [mlx_func], type_ignores=[])
         ast.fix_missing_locations(module)
         print(f"Generated Python code:\n{ast.unparse(module)}")
         code = compile(module, "<mlx_ast>", "exec")

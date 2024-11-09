@@ -5,6 +5,7 @@ import pstats
 import torch
 from torch.fx import GraphModule
 from torch.export import export
+from functorch.compile import aot_function, aot_module_simplified, aot_module
 
 import mlx.core as mx
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -12,27 +13,43 @@ from diffusers import StableDiffusion3Pipeline
 
 from tqdm import tqdm
 
-from src.proteus import proteus
+from src.proteus import proteus, proteus_no_compile
 from src.utils import aten_opset_compiler, coerce_mx_to_torch, coerce_torch_to_mx
-from tests.test_modules import TestModule, cool_mlx_fn, SimpleTransformer, SimpleModule
+from tests.test_modules import (
+    TestModule,
+    cool_mlx_fn,
+    SimpleTransformer,
+    SimpleModule,
+    EmbeddingModule,
+)
+
+
+def test_embed():
+    vocab_size, embed_dim, h_dim = 1024, 2048, 256
+    model = EmbeddingModule(vocab_size, embed_dim, h_dim)
+    test_input = torch.randint(0, vocab_size, (16,))
+    test_out = model(test_input)
+    compiled_model = proteus_no_compile(model)
+    compiled_out = compiled_model(test_input)
+    print(compiled_out, test_out)
 
 
 def test():
     in_dim, h_dim, out_dim = 4092, 2048, 256
-    model = TestModule(in_dim, h_dim, out_dim)
+    model = EmbeddingModule(in_dim, h_dim, out_dim)
     # model = SimpleModule(in_dim, h_dim, out_dim)
     test_input = torch.rand((16, in_dim))
     mlx_input = coerce_torch_to_mx(test_input)
     # for k, v in model.named_parameters():
     #     print(k, v)
 
-    m = proteus(model)
+    m = proteus_no_compile(model)
     out = m(test_input)
     print(out)
+    exit()
 
     # print(f"MLX compiled model output: {coerce_mx_to_torch(m(test_input))}")
     print(f"Original PyTorch model output: {model(test_input)}")
-    exit()
 
     n_iters = 100
     start = time.time()
@@ -46,7 +63,7 @@ def test():
     )
     start = time.time()
     for _ in tqdm(range(n_iters)):
-        _ = m(mlx_input)
+        _ = m(test_input)
         # _ = cool_mlx_fn(mlx_input, mlx_p1, mlx_p2)
     stop = time.time()
     print(f"compiled model: {n_iters} iters in {stop-start} s")
@@ -102,22 +119,33 @@ def compile_llama():
 
     # use export().run_decompositions() to get core aten ir graph
     # without lifing model params into inputs
-    # compiled = proteus(model)
-    compiled_graph = torch.compile(model, backend=aten_opset_compiler)
-    _ = compiled_graph(test_in["input_ids"], attention_mask=test_in["attention_mask"])
+    compiled = proteus_no_compile(model)
+    # compiled = aot_module(model, aten_opset_compiler)
+    # compiled = export(
+    #     model,
+    #     (test_in["input_ids"],),
+    #     {"attention_mask": test_in["attention_mask"]},
+    #     strict=False,
+    # ).module()
+    # compiled_graph = torch.compile(model, backend=)
+    # compiled_graph = proteus(mod)
+    compiled_out = compiled(
+        test_in["input_ids"], attention_mask=test_in["attention_mask"]
+    )
+    print(compiled_out[0], test_out[0])
 
 
 def compile_sd():
 
     pipe = StableDiffusion3Pipeline.from_pretrained(
-        "stabilityai/stable-diffusion-3.5-medium", torch_dtype=torch.bfloat16
+        "stabilityai/stable-diffusion-3.5-medium", torch_dtype=torch.float16
     )
     pipe = pipe.to("mps")
     compiled_pipe = torch.compile(pipe, backend=aten_opset_compiler)
 
     image = compiled_pipe(
         "A capybara holding a sign that reads Hello World",
-        num_inference_steps=10,
+        num_inference_steps=1,
         guidance_scale=4.5,
     ).images[0]
     image.save("capybara.png")
@@ -159,8 +187,9 @@ def simple_speed_test():
 
 def transformer_opset():
     model = SimpleTransformer(512, 8, 2048)
+    # compiled_graph = torch.compile(model, backend=aten_opset_compiler)
     compiled_graph = torch.compile(model, backend=aten_opset_compiler)
     _ = compiled_graph(torch.randn((16, 2, 512)))
 
 
-test()
+test_embed()

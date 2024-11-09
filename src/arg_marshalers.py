@@ -14,14 +14,12 @@ def passthrough_arg_marshaler(
     # remember that your arg names are just SSA values from the fx graph so just take the name
     # and assume its already been registered as a variable somewhere in the AST
     ast_args = []
-    print(args)
     for arg in args:
         if isinstance(arg, fx.Node):
             ast_args.append(ast.Name(id=arg.name, ctx=ast.Load()))
         elif isinstance(arg, (fx.immutable_collections.immutable_list, tuple, int)):
             # TODO: This is as SUPER hacky way to get the list
             parsed = ast.parse(repr(arg))
-            print(parsed)
             if isinstance(parsed.body[0], ast.Expr):
                 ast_args.append(parsed.body[0].value)
             else:

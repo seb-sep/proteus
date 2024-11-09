@@ -46,7 +46,7 @@ def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):
             if node.op in ["call_function", "call_module", "call_method"]:
                 s.add(node.target)
 
-        print(gm.graph)
+        # print(gm.graph)
 
         print("Aten operators used in this graph:")
         for op in s:

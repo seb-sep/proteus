@@ -20,6 +20,21 @@ class SimpleModule(nn.Module):
         return self.layers(x)
 
 
+class EmbeddingModule(nn.Module):
+    def __init__(self, vocab_size=1000, embedding_dim=64, hidden_dim=32):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.fc = nn.Linear(embedding_dim, hidden_dim)
+        self.out = nn.Linear(hidden_dim, vocab_size)
+
+    def forward(self, x):
+        # x shape: (batch_size, seq_len)
+        x = self.embedding(x)  # (batch_size, seq_len, embedding_dim)
+        x = F.relu(self.fc(x))  # (batch_size, seq_len, hidden_dim)
+        x = self.out(x)  # (batch_size, seq_len, vocab_size)
+        return x
+
+
 class TestModule(nn.Module):
     def __init__(self, in_dim, h_dim, out_dim):
         super().__init__()

@@ -4,7 +4,8 @@ from pprint import pprint
 import torch.nn as nn
 import torch.fx as fx
 import torch
-from functorch.compile import aot_function, aot_module_simplified
+from functorch.compile import aot_function, aot_module_simplified, aot_module
+from functorch.experimental.control_flow import cond
 import torch.utils._pytree as pytree
 import torch._dynamo as dynamo
 
@@ -54,14 +55,14 @@ class MLXCompiledModule:
 
     def __call__(self, *args, **kwargs):
         # if you've already compiled to an mlx fn, then you need to pass the input tensors to MLX as mlx arrays
-        print(self.compiled_fn)
         if self.mlx_mode:
-            args = [coerce_torch_to_mx(tensor) for tensor in args]
+            args = tuple(coerce_torch_to_mx(tensor) for tensor in args)
             kwargs = {k: coerce_torch_to_mx(v) for k, v in kwargs.items()}
-            # return self.compiled_fn(
-            #     self.named_params, self.named_buffers, *args, **kwargs
-            # )
-            return self.compiled_fn(*args, **kwargs)
+            print(f"coerced args to mlx, about to call compiled fn for real")
+            return self.compiled_fn(
+                *(self.named_params + self.named_buffers + args)  # , **kwargs
+            )
+            # return self.compiled_fn(*args, **kwargs)
         else:
             self.mlx_update(*args, **kwargs)
             return self(*args, **kwargs)
@@ -73,21 +74,26 @@ class MLXCompiledModule:
         """
         # prompt compilation on sample inputs
         # print(args, kwargs)
-        print("invoking compiled fn")
+        print("invoking fn on pytorch args to compile: ")
+        print(self.compiled_fn)
+        exported_graph = torch.export.export(self.compiled_fn, args, kwargs)
+        self.compiled_fn = mlx_compiler(exported_graph, None)
         # _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
-        _ = self.compiled_fn(*args, **kwargs)
+        print("after compilation: ")
+        print(self.compiled_fn)
 
         # After the pytorch tensors were used for compilation, convert them
         # to MLX arrays for use in the final fn
         print("coercing params to mlx")
-        self.named_params = {
-            k: coerce_torch_to_mx(v) for k, v in self.named_params.items()
-        }
-        self.named_buffers = {
-            k: coerce_torch_to_mx(v) for k, v in self.named_buffers.items()
-        }
+        self.named_params = tuple(
+            coerce_torch_to_mx(v) for v in self.named_params.values()
+        )
+        self.named_buffers = tuple(
+            coerce_torch_to_mx(v) for v in self.named_buffers.values()
+        )
         self.mlx_mode = True
-        # _coerce_args_to_mlx.disable_coercion()
+        print("went into mlx mode")
+        _coerce_args_to_mlx.disable_coercion()
 
 
 def params_to_mlx(mod: nn.Module) -> List[mx.array]:
@@ -125,7 +131,7 @@ def mlx_compiler(gm: fx.GraphModule, _):
     calling MLX operations. Second argument is for matching the signature expected by AOTAutograd.
     """
 
-    gm.print_readable()
+    print(gm.graph)
 
     builder = MLXASTBuilder()
     for node in gm.graph.nodes:
@@ -150,6 +156,7 @@ def mlx_compiler(gm: fx.GraphModule, _):
     def torch_wrapper(*args):
         mlx_args = _coerce_args_to_mlx(args)
         print(mlx_args)
+        print("entering mlx fn")
         outs = mlx_fn(*mlx_args)
         # pprint(outs)
         return tuple(coerce_mx_to_torch(out) for out in outs)
@@ -198,3 +205,45 @@ def proteus(mod: nn.Module):
     # compiled_fn = to_aten_compiler()
     # compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
     return compiled_fn
+
+
+def proteus_no_compile(mod: nn.Module):
+    """
+    Compile an eagerly computing PyTorch module to a function which computes in MLX under the hood.
+    """
+
+    # HUGE DISCOVERY: to raise the inputs, you literally just get mod.named_parameters() and mod.named_buffers(), turn into a single dict,
+    # and pytree flatten
+    # This is guaranteed to produce the same ordering each time
+    # the following is shamelessly pulled from aot autograd source code
+    # https://github.com/pytorch/pytorch/blob/3d3551506d4acccdd06d6f98eaf05e5288d254b3/torch/_functorch/aot_autograd.py#L1190
+
+    # print(f"{len(sample_inputs)} sample inputs:")
+    # pprint(sample_inputs)
+    # mod.print_readable()
+    # exit()
+
+    # of COURSE this will proc when using torch compile: it can handle graph breaks
+    # so it will preserve the full Python semantics instead of just swapping out
+    # for a full graph, which IS the behavior you want
+    def functional_call(named_params, named_buffers, *args, **kwargs):
+        params_and_buffers = {**named_params, **named_buffers}
+        print("running functional call")
+        return torch.func.functional_call(mod, params_and_buffers, args, kwargs)
+
+    # Hold onto these for the FIRST tracing call, then swap out with the MLXified args
+    named_params = dict(mod.named_parameters(remove_duplicate=False))
+    named_buffers = dict(mod.named_buffers(remove_duplicate=False))
+    num_params_buffers = len(named_params) + len(named_buffers)
+
+    # I want to use aot_function so I have control over how the inputs are raised and passed
+    # compiled_fn = torch.export.export(
+    #     functional_call,
+    #     fw_compiler=mlx_compiler,
+    #     num_params_buffers=num_params_buffers,
+    #     dynamic=True,
+    # )
+    # dynamo.optimize
+    # compiled_fn = to_aten_compiler()
+    compiled_mod = MLXCompiledModule(named_params, named_buffers, mod)
+    return compiled_mod
