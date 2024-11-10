@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from src.proteus import proteus, proteus_no_compile
 from src.utils import aten_opset_compiler, coerce_mx_to_torch, coerce_torch_to_mx
+from src.mlx_builder import DefaultInterpreter
 from tests.test_modules import (
     TestModule,
     cool_mlx_fn,
@@ -135,15 +136,47 @@ def compile_llama():
     print(compiled_out[0], test_out[0])
 
 
-def compile_sd():
+def export_llama_getattr():
+    model_name = "meta-llama/Llama-3.2-1B"
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, legacy=False)
 
+    text = "Proteus is a cracked PyTorch compiler"
+    test_in = tokenizer(text, return_tensors="pt")
+
+    # Set the model as our test model
+
+    # use export().run_decompositions() to get core aten ir graph
+    # without lifing model params into inputs
+    # compiled = aot_module(model, aten_opset_compiler)
+    compiled = export(
+        model,
+        (test_in["input_ids"],),
+        {"attention_mask": test_in["attention_mask"]},
+        strict=False,
+    ).module()
+    named_params = dict(model.named_parameters())
+    named_buffers = dict(model.named_buffers())
+    DefaultInterpreter(compiled).boxed_run(
+        [named_params, named_buffers, test_in["input_ids"]]
+    )
+    # compiled_graph = proteus(mod)
+    compiled_out = compiled(
+        test_in["input_ids"], attention_mask=test_in["attention_mask"]
+    )
+    # print(compiled_out[0])
+
+
+def compile_sd():
     pipe = StableDiffusion3Pipeline.from_pretrained(
         "stabilityai/stable-diffusion-3.5-medium", torch_dtype=torch.float16
     )
     pipe = pipe.to("mps")
-    compiled_pipe = torch.compile(pipe, backend=aten_opset_compiler)
+    pipe.transformer = proteus_no_compile(pipe.transformer)
+    # pipe.transformer = torch.compile(pipe.transformer, backend=aten_opset_compiler)
+    # compiled_pipe = proteus_no_compile(pipe)
 
-    image = compiled_pipe(
+    image = pipe(
         "A capybara holding a sign that reads Hello World",
         num_inference_steps=1,
         guidance_scale=4.5,
@@ -192,4 +225,4 @@ def transformer_opset():
     _ = compiled_graph(torch.randn((16, 2, 512)))
 
 
-test_embed()
+compile_sd()

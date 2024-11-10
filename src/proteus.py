@@ -11,8 +11,8 @@ import torch._dynamo as dynamo
 
 import mlx.core as mx
 
-from src.mlx_builder import MLXASTBuilder
-from src.utils import coerce_torch_to_mx, coerce_mx_to_torch
+from mlx_builder import MLXASTBuilder
+from utils import coerce_torch_to_mx, coerce_mx_to_torch
 
 MLX_DEVICE = mx.default_device()
 
@@ -52,6 +52,7 @@ class MLXCompiledModule:
         self.named_buffers = named_buffers
         self.mlx_mode = False
         self.compiled_fn = compiled_fn
+        # self.config = compiled_fn.config
 
     def __call__(self, *args, **kwargs):
         # if you've already compiled to an mlx fn, then you need to pass the input tensors to MLX as mlx arrays
@@ -75,12 +76,13 @@ class MLXCompiledModule:
         # prompt compilation on sample inputs
         # print(args, kwargs)
         print("invoking fn on pytorch args to compile: ")
-        print(self.compiled_fn)
+        # print(self.compiled_fn)
+        # target=torch.ops.higher_order.wrap_with_set_grad_enabled]
         exported_graph = torch.export.export(self.compiled_fn, args, kwargs)
         self.compiled_fn = mlx_compiler(exported_graph, None)
         # _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
-        print("after compilation: ")
-        print(self.compiled_fn)
+        # print("after compilation: ")
+        # print(self.compiled_fn)
 
         # After the pytorch tensors were used for compilation, convert them
         # to MLX arrays for use in the final fn
@@ -130,9 +132,12 @@ def mlx_compiler(gm: fx.GraphModule, _):
     Compile the given FX graph of aten ops into a Python function
     calling MLX operations. Second argument is for matching the signature expected by AOTAutograd.
     """
-
-    print(gm.graph)
-
+    with open("graph.txt", "w") as f:
+        f.write(str(gm.graph))
+    print("Graph module variables:")
+    for var_name in vars(gm):
+        print(f"  {var_name}")
+    print("end of vars")
     builder = MLXASTBuilder()
     for node in gm.graph.nodes:
         if node.op == "placeholder":
@@ -145,8 +150,14 @@ def mlx_compiler(gm: fx.GraphModule, _):
             # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
             # builder.addReturn(node.args[0][0])
             builder.addReturn(node.args[0])
+        elif node.op == "get_attr":
+            attr = getattr(gm._graph_module, node.target)
+            print(attr)
+            pprint(vars(node))
+            raise ValueError(f"unhandled getattr")
+
         else:
-            raise ValueError(f"unhandled node type: node {node}")
+            raise ValueError(f"unhandled node type: node {node, node.op}")
 
     # TODO: when to compile vs not? could autotune lmao
     mlx_fn = mx.compile(builder.export())
@@ -155,8 +166,7 @@ def mlx_compiler(gm: fx.GraphModule, _):
     # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
     def torch_wrapper(*args):
         mlx_args = _coerce_args_to_mlx(args)
-        print(mlx_args)
-        print("entering mlx fn")
+        # print(mlx_args)
         outs = mlx_fn(*mlx_args)
         # pprint(outs)
         return tuple(coerce_mx_to_torch(out) for out in outs)
@@ -183,6 +193,8 @@ def proteus(mod: nn.Module):
     # of COURSE this will proc when using torch compile: it can handle graph breaks
     # so it will preserve the full Python semantics instead of just swapping out
     # for a full graph, which IS the behavior you want
+    mod.eval()
+
     def functional_call(named_params, named_buffers, *args, **kwargs):
         params_and_buffers = {**named_params, **named_buffers}
         print("running functional call")
@@ -201,9 +213,9 @@ def proteus(mod: nn.Module):
     #     dynamic=True,
     # )
     # dynamo.optimize
-    compiled_fn = torch.compile(mod, backend=to_aten_compiler)
+    compiled_fn = torch.compile(functional_call, backend=to_aten_compiler)
     # compiled_fn = to_aten_compiler()
-    # compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
+    compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
     return compiled_fn
 
 

@@ -1,4 +1,5 @@
 from typing import Callable, List, Dict, Any, Tuple, Union
+import operator
 import ast
 from pprint import pprint
 from inspect import getmodule
@@ -8,8 +9,13 @@ from torch import fx
 import mlx.core as mx
 import mlx.nn as nn
 
-from src.arg_marshalers import passthrough_arg_marshaler, take_arg_marshaler
-from src.custom_ops import linear
+from arg_marshalers import (
+    passthrough_arg_marshaler,
+    take_arg_marshaler,
+    clone_arg_marshaler,
+    arange_arg_marshaler,
+)
+import custom_ops.custom_ops as custom_ops
 
 aten = torch.ops.aten
 
@@ -20,9 +26,12 @@ _fn_mapping = {
     aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
     aten.relu.default: (nn.relu, passthrough_arg_marshaler),
     aten.silu.default: (nn.silu, passthrough_arg_marshaler),
+    aten.gelu.default: (nn.gelu, passthrough_arg_marshaler),
     aten.triu.default: (mx.triu, passthrough_arg_marshaler),
     aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
+    aten.div.Tensor: (mx.divide, passthrough_arg_marshaler),
     aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
+    aten.exp.default: (mx.exp, passthrough_arg_marshaler),
     aten.gt.Tensor: (mx.greater, passthrough_arg_marshaler),
     aten.neg.default: (mx.negative, passthrough_arg_marshaler),
     aten.cos.default: (mx.cos, passthrough_arg_marshaler),
@@ -32,7 +41,34 @@ _fn_mapping = {
     aten.select.int: (mx.take, take_arg_marshaler),
     aten.eq.Scalar: (mx.equal, passthrough_arg_marshaler),
     aten.embedding.default: (mx.array.__getitem__, passthrough_arg_marshaler),
-    aten.linear.default: (linear.linear, passthrough_arg_marshaler),
+    # aten.linear.default: (custom_ops.linear, passthrough_arg_marshaler),
+    # is it ok to have multiple aten ops map to the same mlx fn like this?
+    # TODO: device removal in arange marshaling sohuld be universal
+    aten.arange.start: (mx.arange, arange_arg_marshaler),
+    aten.arange.default: (mx.arange, arange_arg_marshaler),
+    aten.unsqueeze.default: (mx.expand_dims, passthrough_arg_marshaler),
+    aten.full.default: (mx.full, passthrough_arg_marshaler),
+    aten.view.default: (mx.view, passthrough_arg_marshaler),
+    # aten.slice.Tensor: (custom_ops.slice, passthrough_arg_marshaler),
+    # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
+    aten.clone.default: (mx.array.__copy__, clone_arg_marshaler),
+    aten.copy.default: (mx.array.__copy__, passthrough_arg_marshaler),
+    aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
+    # aten.masked_fill.Scalar: (custom_ops.masked_fill, passthrough_arg_marshaler),
+    # aten.slice_scatter.default: (custom_ops.slice_scatter, passthrough_arg_marshaler),
+    aten.conv2d.default: (mx.conv2d, passthrough_arg_marshaler),
+    aten._unsafe_view.default: (mx.reshape, passthrough_arg_marshaler),
+    aten.split.Tensor: (mx.split, passthrough_arg_marshaler),
+    # aten.dropout.default: (custom_ops.passthrough, passthrough_arg_marshaler),
+    aten.scaled_dot_product_attention.default: (
+        mx.fast.scaled_dot_product_attention,
+        passthrough_arg_marshaler,
+    ),
+    operator.getitem: (mx.array.__getitem__, passthrough_arg_marshaler),
+    aten.layer_norm.default: (mx.fast.layer_norm, passthrough_arg_marshaler),
+    aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
+    aten.mean.dim: (mx.mean, passthrough_arg_marshaler),
+    aten.einsum.default: (mx.einsum, passthrough_arg_marshaler),
 }
 
 
@@ -56,7 +92,9 @@ def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
     return {
         nn.silu: ["mlx", "nn", "silu"],
         nn.relu: ["mlx", "nn", "relu"],
+        nn.gelu: ["mlx", "nn", "gelu"],
         mx.array.__getitem__: ["mlx", "core", "array", "__getitem__"],
+        mx.array.__copy__: ["mlx", "core", "array", "__copy__"],
     }.get(fn, None)
 
 
@@ -86,7 +124,7 @@ class MLXASTBuilder:
         # import mlx.core as mx
         self.imports = [
             ast.Import(names=[ast.alias(name="mlx", asname=None)]),
-            ast.Import(names=[ast.alias(name="src", asname=None)]),
+            # ast.Import(names=[ast.alias(name="src", asname=None)]),
         ]
         # mlx function calls in order of execution
         self.calls: List[ast.Call] = []
@@ -215,4 +253,31 @@ class MLXCodeGenInterpreter(fx.Interpreter):
     def output(self, target, args, kwargs):
         print(f"Output target: {target}")
         print(f"args {args}, kwargs {kwargs}")
+        return super().output(target, args, kwargs)
+
+
+class DefaultInterpreter(fx.Interpreter):
+    """Interpreter that uses default behavior for all overrides"""
+
+    def __init__(self, gm: fx.GraphModule):
+        super().__init__(gm)
+
+    def call_function(self, target, args, kwargs):
+        return super().call_function(target, args, kwargs)
+
+    def call_method(self, target, args, kwargs):
+        return super().call_method(target, args, kwargs)
+
+    def call_module(self, target, args, kwargs):
+        return super().call_module(target, args, kwargs)
+
+    def get_attr(self, target, args, kwargs):
+        # print(target, args, kwargs)
+        # print(args, kwargs)
+        return super().get_attr(target, args, kwargs)
+
+    def placeholder(self, target, args, kwargs):
+        return super().placeholder(target, args, kwargs)
+
+    def output(self, target, args, kwargs):
         return super().output(target, args, kwargs)

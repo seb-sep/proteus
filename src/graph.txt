@@ -1,0 +1,10 @@
+graph():
+    %p_fc1_weight : [num_users=1] = placeholder[target=p_fc1_weight]
+    %p_fc2_weight : [num_users=1] = placeholder[target=p_fc2_weight]
+    %x : [num_users=1] = placeholder[target=x]
+    %linear : [num_users=1] = call_function[target=torch.ops.aten.linear.default](args = (%x, %p_fc1_weight), kwargs = {})
+    %silu : [num_users=1] = call_function[target=torch.ops.aten.silu.default](args = (%linear,), kwargs = {})
+    %triu : [num_users=1] = call_function[target=torch.ops.aten.triu.default](args = (%silu,), kwargs = {})
+    %linear_1 : [num_users=1] = call_function[target=torch.ops.aten.linear.default](args = (%triu, %p_fc2_weight), kwargs = {})
+    %sin : [num_users=1] = call_function[target=torch.ops.aten.sin.default](args = (%linear_1,), kwargs = {})
+    return (sin,)
