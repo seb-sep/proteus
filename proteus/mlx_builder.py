@@ -9,13 +9,13 @@ from torch import fx
 import mlx.core as mx
 import mlx.nn as nn
 
-from arg_marshalers import (
+from proteus.arg_marshalers import (
     passthrough_arg_marshaler,
     take_arg_marshaler,
     clone_arg_marshaler,
     arange_arg_marshaler,
 )
-import custom_ops.custom_ops as custom_ops
+import proteus.custom_ops.custom_ops as custom_ops
 
 aten = torch.ops.aten
 

@@ -49,8 +49,6 @@ class TestModule(nn.Module):
         x = self.fc1(x)
         x = F.silu(x)
         x = torch.triu(x)
-        if x[0][0] == 0:
-            return x
         x = self.fc2(x)
         x = torch.sin(x)
         return x
@@ -93,6 +91,3 @@ def cool_mlx_fn(primals_1, primals_2, primals_3):
     mm_1 = mx.matmul(triu, t_1)
     sin = mx.sin(mm_1)
     return (mx.eval(sin),)
-
-
-mlx.nn.Dropout

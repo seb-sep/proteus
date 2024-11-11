@@ -11,8 +11,8 @@ import torch._dynamo as dynamo
 
 import mlx.core as mx
 
-from mlx_builder import MLXASTBuilder
-from utils import coerce_torch_to_mx, coerce_mx_to_torch
+from proteus.mlx_builder import MLXASTBuilder
+from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
 
 MLX_DEVICE = mx.default_device()
 

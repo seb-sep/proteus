@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from proteus import proteus
+from proteus.proteus import proteus
 import torch.nn.functional as F
 
 

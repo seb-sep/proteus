@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: proteus
+Version: 0.1.0
+Summary: Accelerate PyTorch on MacOS, powered by MLX
+Requires-Python: >=3.9
+Requires-Dist: torch>=2.0.0
+Requires-Dist: mlx
+Requires-Dist: numpy
+Provides-Extra: test
+Requires-Dist: transformers; extra == "test"
+Requires-Dist: sentencepiece; extra == "test"
+Requires-Dist: protobuf; extra == "test"

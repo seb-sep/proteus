@@ -1,6 +1,0 @@
-torch
-transformers
-mlx
-numpy
-sentencepiece
-protobuf

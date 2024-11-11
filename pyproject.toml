@@ -1,0 +1,24 @@
+[project]
+name = "proteus"
+version = "0.1.0"
+description = "Accelerate PyTorch on MacOS, powered by MLX"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "mlx",
+    "numpy",
+]
+
+[project.optional-dependencies]
+test = [
+    "transformers",
+    "sentencepiece", 
+    "protobuf",
+]
+
+[tool.setuptools]
+packages = ["proteus"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
