@@ -7,40 +7,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+
 option(BUILD_SHARED_LIBS "Build extensions as a shared library" ON)
 
 # ----------------------------- Dependencies -----------------------------
-# Print SDK path
-message(STATUS "CMAKE_OSX_SYSROOT: ${CMAKE_OSX_SYSROOT}")
-
-# Print linker flags
-message(STATUS "CMAKE_EXE_LINKER_FLAGS: ${CMAKE_EXE_LINKER_FLAGS}")
-message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
-
-# Print library search paths
-message(STATUS "CMAKE_LIBRARY_PATH: ${CMAKE_LIBRARY_PATH}")
-message(STATUS "CMAKE_FRAMEWORK_PATH: ${CMAKE_FRAMEWORK_PATH}")
-
-# Print output directories
-message(STATUS "CMAKE_LIBRARY_OUTPUT_DIRECTORY: ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
-message(STATUS "CMAKE_RUNTIME_OUTPUT_DIRECTORY: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-
-# Print MLX-specific variables
-message(STATUS "MLX_INCLUDE_DIRS: ${MLX_INCLUDE_DIRS}")
-message(STATUS "MLX_LIBRARIES: ${MLX_LIBRARIES}")
-
-
 find_package(MLX CONFIG REQUIRED)
 find_package(
   Python 3.9
   COMPONENTS Interpreter Development.Module
   REQUIRED)
-# if(DEFINED MLX_CONFIG)
-#   message(STATUS "Contents of MLX_CONFIG file:")
-#   file(READ "${MLX_CONFIG}" MLX_CONFIG_CONTENTS)
-#   message(STATUS "${MLX_CONFIG_CONTENTS}")
-# endif()
-execute_process(
+
+  execute_process(
   COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
   OUTPUT_STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE NB_DIR)

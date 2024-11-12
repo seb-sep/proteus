@@ -2,9 +2,7 @@ venv/
 .vscode/
 __pycache__/
 *.egg-info/
-*.egg-info/**
 *.egg
-build/
 *.pyc
 *.so
 *.metallib
