@@ -28,7 +28,7 @@ class TestProteus(unittest.TestCase):
         test_out = model(test_input)
 
         # Compile the model
-        compiled_model = proteus(model, test_input)
+        compiled_model = proteus(model)
         compiled_out = compiled_model(coerce_torch_to_mx(test_input))
 
         # Compare outputs

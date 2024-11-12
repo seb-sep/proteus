@@ -12,13 +12,19 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "transformers",
+    "diffusers",
     "sentencepiece", 
     "protobuf",
 ]
 
 [tool.setuptools]
-packages = ["proteus"]
+packages = ["proteus", "c_extensions"]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = [
+  "setuptools>=42",
+  "cmake>=3.24",
+  "mlx>=0.18.0",
+  "nanobind",
+]
 build-backend = "setuptools.build_meta"

@@ -1,8 +1,0 @@
-__init__
-arg_marshalers
-csrc
-custom_ops
-mlx_builder
-proteus
-proteus_fun
-utils

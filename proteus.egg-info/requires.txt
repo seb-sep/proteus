@@ -1,8 +1,0 @@
-torch>=2.0.0
-mlx
-numpy
-
-[test]
-transformers
-sentencepiece
-protobuf

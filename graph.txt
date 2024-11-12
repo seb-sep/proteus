@@ -1,7 +1,0 @@
-graph():
-    %primals_1 : [num_users=1] = placeholder[target=primals_1]
-    %primals_2 : [num_users=2] = placeholder[target=primals_2]
-    %t : [num_users=2] = call_function[target=torch.ops.aten.t.default](args = (%primals_1,), kwargs = {})
-    %mm : [num_users=2] = call_function[target=torch.ops.aten.mm.default](args = (%primals_2, %t), kwargs = {})
-    %sin : [num_users=1] = call_function[target=torch.ops.aten.sin.default](args = (%mm,), kwargs = {})
-    return (sin, primals_2, t, mm)
