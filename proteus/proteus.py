@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 from pprint import pprint
 import time
 
@@ -138,81 +138,61 @@ def to_aten_compiler(gm: fx.GraphModule, sample_inputs):
 
 
 # Close over the mlx_params to pass in the final compiled fn
-def mlx_compiler(gm: fx.GraphModule, sample_inputs):
+def mlx_compiler(
+    static_mlx_params_buffers: Dict[Union[nn.Parameter, torch.Tensor], mx.array]
+):
     """
-    Compile the given FX graph of aten ops into a Python function
-    calling MLX operations. Second argument is for matching the signature expected by AOTAutograd.
+    Compile the given FX graph of aten ops into a Python function calling MLX operations.
     """
 
-    # print(gm.graph)
-    def print_names(args):
-        global _global_param_lookup_table
-        for arg in args:
-            if isinstance(arg, nn.Parameter):
-                print(_global_param_lookup_table[id(arg)])
+    def _mlx_compiler(gm: fx.GraphModule, sample_inputs):
 
-    # print(
-    #     f"number of params used in this gm is {len(list(gm.named_parameters()))}, buffers {len(list(gm.named_buffers()))}"
-    # )
-    gm.recompile()
-    # print(gm.graph)
-    aten_graph = make_fx(gm)(*sample_inputs)
-    # print(aten_graph.graph)
+        # print(gm.graph)
+        aten_graph = make_fx(gm)(*sample_inputs)
+        # print(aten_graph.graph)
 
-    # print("Graph module variables:")
-    # for var_name in vars(gm):
-    #     print(f"  {var_name}")
-    # print("end of vars")
-    builder = MLXASTBuilder()
-    for node in aten_graph.graph.nodes:
-        if node.op == "placeholder":
-            builder.addArgument(node.target)
-        elif node.op == "call_function":
-            builder.addFunctionCall(node.target, node.name, node.args, node.kwargs)
-        elif node.op == "output":
-            # the first value in args for output is what to actually return from the graph i think,
-            # we might actually only care about the first value in that tuple
-            # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
-            # builder.addReturn(node.args[0][0])
-            builder.addReturn(node.args[0])
-        elif node.op == "get_attr":
-            attr = getattr(gm._graph_module, node.target)
-            print(attr)
-            pprint(vars(node))
-            raise ValueError(f"unhandled getattr")
+        builder = MLXASTBuilder()
+        for node in aten_graph.graph.nodes:
+            if node.op == "placeholder":
+                builder.addArgument(node.target)
+            elif node.op == "call_function":
+                builder.addFunctionCall(node.target, node.name, node.args, node.kwargs)
+            elif node.op == "output":
+                # the first value in args for output is what to actually return from the graph i think,
+                # we might actually only care about the first value in that tuple
+                # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
+                builder.addReturn(node.args[0])
+            elif node.op == "get_attr":
+                # attr = getattr(gm._graph_module, node.target)
+                # print(attr)
+                # pprint(vars(node))
+                raise ValueError(f"unhandled getattr")
 
-        else:
-            raise ValueError(f"unhandled node type: node {node, node.op}")
-
-    # TODO: when to compile vs not? could autotune lmao
-    mlx_fn = mx.compile(builder.export())
-
-    # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
-    # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
-    # YES could inline in the codegenned MLX fn, but this is an optimization for later
-    def torch_wrapper(*args):
-        global _global_param_lookup_table
-        for arg in args:
-            if isinstance(arg, nn.Parameter):
-                if id(arg) in _global_param_lookup_table:
-                    print(f"id {id(arg)} hit, should lookup")
-                else:
-                    print(f"id {id(arg)} missed for some reason")
             else:
-                print(f"arg of type {type(arg)}")
-        mlx_args = tuple(
-            (
-                mlx_param
-                if ((mlx_param := _global_param_lookup_table.get(id(arg))) is not None)
-                else coerce_torch_to_mx(arg)
+                raise ValueError(f"unhandled node type: node {node, node.op}")
+
+        # TODO: when to compile vs not? could autotune lmao
+        mlx_fn = mx.compile(builder.export())
+
+        # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
+        # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
+        # YES could inline in the codegenned MLX fn, but this is an optimization for later
+        def torch_wrapper(*args):
+            mlx_args = tuple(
+                (
+                    mlx_param
+                    if ((mlx_param := static_mlx_params_buffers.get(arg)) is not None)
+                    else coerce_torch_to_mx(arg)
+                )
+                for arg in args
             )
-            for arg in args
-        )
 
-        outs = mlx_fn(*mlx_args)
-        return tuple(coerce_mx_to_torch(out) for out in outs)
+            outs = mlx_fn(*mlx_args)
+            return tuple(coerce_mx_to_torch(out) for out in outs)
 
-    return torch_wrapper
+        return torch_wrapper
+
+    return _mlx_compiler
 
 
 def proteus(mod: nn.Module):
@@ -346,7 +326,7 @@ _global_param_lookup_table: Dict[int, mx.array] = {}
 
 def replace_param_with_mlx(
     mod: nn.Module,
-    static_mlx_parameters: Dict[str, mx.array],
+    static_mlx_parameters: Dict[nn.Parameter, mx.array],
     name: str,
     param: nn.Parameter,
 ):
@@ -357,13 +337,11 @@ def replace_param_with_mlx(
     """
 
     # I guess this should just work with params instead of tensors??? if not we can cast to the superclass
-    static_mlx_parameters[name] = coerce_torch_to_mx(param)
-    torch_digital_twin = nn.Parameter(coerce_mx_to_torch(static_mlx_parameters[name]))
+    mlx_param = coerce_torch_to_mx(param)
+    torch_digital_twin = nn.Parameter(coerce_mx_to_torch(mlx_param))
+    static_mlx_parameters[torch_digital_twin] = mlx_param
 
-    global _global_param_lookup_table
-    _global_param_lookup_table[id(torch_digital_twin)] = static_mlx_parameters[name]
-
-    # find and unset the parameter
+    # find and unset the parameter, then re-set it with the digital twin
     if "." not in name:
         delattr(mod, name)
         mod.register_parameter(name, torch_digital_twin)
@@ -376,15 +354,16 @@ def replace_param_with_mlx(
 
 def replace_buffer_with_mlx(
     mod: nn.Module,
-    static_mlx_buffers: Dict[str, mx.array],
+    static_mlx_buffers: Dict[torch.Tensor, mx.array],
     name: str,
     buffer: torch.Tensor,
 ):
     """
     Copy of replace_param_with_mlx that works on buffers
     """
-    static_mlx_buffers[name] = coerce_torch_to_mx(buffer)
-    torch_digital_twin = coerce_mx_to_torch(static_mlx_buffers[name])
+    mlx_buf = coerce_torch_to_mx(buffer)
+    torch_digital_twin = coerce_mx_to_torch(mlx_buf)
+    static_mlx_buffers[torch_digital_twin] = mlx_buf
 
     # find and unset the buffer
     if "." not in name:
@@ -401,29 +380,22 @@ def proteus_v4(mod: nn.Module):
 
     mod.eval()
 
-    # generate statix mlx array 'twins' of all the params in the module
-    # how will this fare for nested params? we'll see
-    static_mlx_parameters: Dict[str, mx.array] = {}
-    static_mlx_buffers: Dict[str, mx.array] = {}
+    # generate static mlx array 'twins' of all the params in the module
+    # no real overhead between making keys tensors or id() ints, since
+    # torch.Tensor's __hash__ just returns the ID
+    static_mlx_parameters_buffers: Dict[Union[nn.Parameter, torch.Tensor], mx.array] = (
+        {}
+    )
 
     # collect into a list aot to avoid issues w/mutation
     # let's ignore buffers for now
     for name, param in list(mod.named_parameters()):
-        replace_param_with_mlx(mod, static_mlx_parameters, name, param)
+        replace_param_with_mlx(mod, static_mlx_parameters_buffers, name, param)
     for name, buf in list(mod.named_buffers()):
-        replace_buffer_with_mlx(mod, static_mlx_buffers, name, buf)
-    # theoretically, at this point the module SHOULD work just as before
+        replace_buffer_with_mlx(mod, static_mlx_parameters_buffers, name, buf)
+    # at this point the module SHOULD work just as before
 
-    # now, I need to replace parameter lookups/graph inputs to lookups to our static mlx parameters
-    # perhaps we can leverage type info at the TorchIR level here
-    # however, can we control what dynamo passes INTO our graph?
-    # for now, we'll naively replace those with MLX param lookups during MLX codegen
-    compiled_fn = torch._dynamo.optimize(
-        backend=mlx_compiler,
-    )(mod)
+    compiled_fn = torch.compile(
+        mod, backend=mlx_compiler(static_mlx_parameters_buffers)
+    )
     return compiled_fn
-
-    named_params = dict(mod.named_parameters(remove_duplicate=False))
-    named_buffers = dict(mod.named_buffers(remove_duplicate=False))
-    compiled_mod = MLXCompiledModule(named_params, named_buffers, compiled_fn)
-    return compiled_mod
