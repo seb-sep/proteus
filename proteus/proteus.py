@@ -152,24 +152,7 @@ def mlx_compiler(
         # print(aten_graph.graph)
 
         builder = MLXASTBuilder()
-        for node in aten_graph.graph.nodes:
-            if node.op == "placeholder":
-                builder.addArgument(node.target)
-            elif node.op == "call_function":
-                builder.addFunctionCall(node.target, node.name, node.args, node.kwargs)
-            elif node.op == "output":
-                # the first value in args for output is what to actually return from the graph i think,
-                # we might actually only care about the first value in that tuple
-                # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
-                builder.addReturn(node.args[0])
-            elif node.op == "get_attr":
-                # attr = getattr(gm._graph_module, node.target)
-                # print(attr)
-                # pprint(vars(node))
-                raise ValueError(f"unhandled getattr")
-
-            else:
-                raise ValueError(f"unhandled node type: node {node, node.op}")
+        builder.ingest_graph(aten_graph.graph)
 
         # TODO: when to compile vs not? could autotune lmao
         mlx_fn = mx.compile(builder.export())

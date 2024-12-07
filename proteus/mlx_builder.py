@@ -5,7 +5,7 @@ from pprint import pprint
 from inspect import getmodule
 
 import torch
-from torch import fx
+from torch.fx import Graph, Node
 import mlx.core as mx
 import mlx.nn as nn
 
@@ -75,7 +75,7 @@ _fn_mapping = {
 
 
 def aten_to_mlx(
-    aten_op, device: Union[mx.Device, mx.Stream]
+    aten_op,
 ) -> Tuple[Callable, Callable[[List, Dict], Tuple[List[ast.AST], List[ast.keyword]]]]:
     """
     Map an aten op to a tuple of the corresponding MLX function,
@@ -133,11 +133,31 @@ class MLXASTBuilder:
         self.device = mx.default_device()
         self.ret: ast.Return = None
 
+    def ingest_graph(self, graph: Graph):
+        for node in graph.nodes:
+            if node.op == "placeholder":
+                self.addArgument(node.target)
+            elif node.op == "call_function":
+                self.addFunctionCall(node.target, node.name, node.args, node.kwargs)
+            elif node.op == "output":
+                # the first value in args for output is what to actually return from the graph i think,
+                # we might actually only care about the first value in that tuple
+                # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
+                self.addReturn(node.args[0])
+            elif node.op == "get_attr":
+                # attr = getattr(gm._graph_module, node.target)
+                # print(attr)
+                # pprint(vars(node))
+                raise ValueError(f"unhandled getattr")
+
+            else:
+                raise ValueError(f"unhandled node type: node {node, node.op}")
+
     def addFunctionCall(self, aten_op, var_name, args: List, kwargs: Dict[str, Any]):
         """Ingest an aten operation and append an assign expression of the matching MLX fn to the AST body."""
 
         # ast.Load() means you're reading the value of the name, not setting or deleting it
-        mlx_fn, arg_marshaler = aten_to_mlx(aten_op, self.device)
+        mlx_fn, arg_marshaler = aten_to_mlx(aten_op)
 
         # Convert args to ast.Name nodes
         ast_args, ast_kwargs = arg_marshaler(args, kwargs)
@@ -169,7 +189,7 @@ class MLXASTBuilder:
         """
         names = []
         for arg in args:
-            if isinstance(arg, fx.Node):
+            if isinstance(arg, Node):
                 # If arg is a torch.fx.Node, use its name attribute
                 names.append(arg.name)
             else:

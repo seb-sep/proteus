@@ -7,7 +7,7 @@ import torch
 
 
 def passthrough_arg_marshaler(
-    args: List, kwargs: Dict
+    args: List[fx.Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
     """Map input args and kwargs directly to an AST arg list and keyword list respectively."""
 
