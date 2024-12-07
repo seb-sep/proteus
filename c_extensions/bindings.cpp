@@ -1,9 +1,10 @@
-// Copyright © 2023-2024 Apple Inc.
-
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/vector.h>
 #include <nanobind/stl/variant.h>
+#include <nanobind/stl/array.h>
 
 #include "axpby/axpby.h"
+#include "tensor_coercion/coercion.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -38,4 +39,11 @@ NB_MODULE(_ext, m) {
         Returns:
             array: ``alpha * x + beta * y``
       )");
+
+    m.def("ptr_to_mlx", 
+        &ptr_to_mlx,
+        "data_ptr"_a,
+        "shape"_a,
+        "dtype"_a = mlx::core::float32,
+        "Create an MLX array from a pointer and shape");
 }

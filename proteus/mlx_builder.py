@@ -28,6 +28,7 @@ _fn_mapping = {
     aten.silu.default: (nn.silu, passthrough_arg_marshaler),
     aten.gelu.default: (nn.gelu, passthrough_arg_marshaler),
     aten.triu.default: (mx.triu, passthrough_arg_marshaler),
+    aten.tril.default: (mx.tril, passthrough_arg_marshaler),
     aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
     aten.div.Tensor: (mx.divide, passthrough_arg_marshaler),
     aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
@@ -68,6 +69,7 @@ _fn_mapping = {
     aten.layer_norm.default: (mx.fast.layer_norm, passthrough_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
     aten.mean.dim: (mx.mean, passthrough_arg_marshaler),
+    aten.mean.default: (mx.mean, passthrough_arg_marshaler),
     aten.einsum.default: (mx.einsum, passthrough_arg_marshaler),
 }
 
@@ -205,4 +207,3 @@ class MLXASTBuilder:
         exec(code, namespace)
 
         return namespace[mlx_func.name]
-

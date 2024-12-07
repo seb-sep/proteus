@@ -17,7 +17,7 @@ find_package(
   COMPONENTS Interpreter Development.Module
   REQUIRED)
 
-  execute_process(
+execute_process(
   COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
   OUTPUT_STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE NB_DIR)
@@ -30,7 +30,10 @@ find_package(nanobind CONFIG REQUIRED)
 add_library(mlx_ext)
 
 # Add sources
-target_sources(mlx_ext PUBLIC ${CMAKE_CURRENT_LIST_DIR}/axpby/axpby.cpp)
+target_sources(mlx_ext PUBLIC 
+  ${CMAKE_CURRENT_LIST_DIR}/axpby/axpby.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/tensor_coercion/coercion.cpp
+)
 
 # Add include headers
 target_include_directories(mlx_ext PUBLIC ${CMAKE_CURRENT_LIST_DIR})

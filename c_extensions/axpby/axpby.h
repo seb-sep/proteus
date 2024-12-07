@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include "mlx/ops.h"
-#include "mlx/primitives.h"
+#include <mlx/ops.h>
+#include <mlx/primitives.h>
 
 namespace mlx::core {
 

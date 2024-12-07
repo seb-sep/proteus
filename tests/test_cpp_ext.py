@@ -1,6 +1,9 @@
 import mlx.core as mx
 
-from c_extensions import axpby
+from c_extensions import axpby, ptr_to_mlx
+
+res = ptr_to_mlx(123, (1, 2), mx.float32)
+print(res)
 
 a = mx.ones((3, 4))
 b = mx.ones((3, 4))

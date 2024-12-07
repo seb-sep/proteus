@@ -54,6 +54,33 @@ class TestModule(nn.Module):
         return x
 
 
+class TestGraphBreakModule(nn.Module):
+    def __init__(self, in_dim, h_dim, out_dim):
+        super().__init__()
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+
+        self.fc1 = nn.Linear(in_dim, h_dim, bias=False)
+        self.fc2 = nn.Linear(h_dim, out_dim, bias=False)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = F.silu(x)
+
+        # Add data dependent branching based on mean value
+        mean_val = torch.mean(x)
+        if mean_val == 0:
+            x = torch.triu(x)
+        else:
+            x = torch.tril(x)
+        x = self.fc2(x)
+        # Add another data dependent branch
+        x = torch.sin(x)
+        x = torch.cos(x)
+        return x
+
+
 class SimpleTransformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, dim_feedforward=2048, dropout=0.1):
         super().__init__()

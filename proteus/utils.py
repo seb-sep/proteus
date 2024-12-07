@@ -1,4 +1,5 @@
 from pprint import pprint
+import ctypes
 
 import mlx.core as mx
 
@@ -10,33 +11,51 @@ from torch._functorch.aot_autograd import (
     aot_function,
 )
 
-import numpy as np
+from c_extensions import ptr_to_mlx
 
 
-def coerce_torch_to_mx(val) -> mx.array:
+torch_dtype_map = {
+    torch.float32: mx.float32,
+    torch.float16: mx.float16,
+    torch.bfloat16: mx.bfloat16,
+    torch.int8: mx.int8,
+    torch.int16: mx.int16,
+    torch.int32: mx.int32,
+    torch.int64: mx.int64,
+    torch.uint8: mx.uint8,
+    torch.bool: mx.bool_,
+}
+
+
+def coerce_torch_to_mx(val: torch.Tensor) -> mx.array:
     """
     Convert some PyTorch value into an MLX array.
     Note that this currently COPIES the tensor, so use sparingly.
     """
-    # print("coercing to mlx")
-    if isinstance(val, mx.array):
-        return val
-    elif isinstance(
-        val, (torch.Tensor, torch.nn.Parameter, torch.nn.parameter.Parameter)
-    ):
-        # print("copying tensor")
-        return mx.array(val.detach().numpy())
-    else:
-        return mx.array(val)
+
+    print("coercing torch to mlx")
+    return mx.array(val.numpy(force=True))
+
+
+mlx_dtype_map = {
+    mx.float32: torch.float32,
+    mx.float16: torch.float16,
+    mx.bfloat16: torch.bfloat16,
+    mx.int8: torch.int8,
+    mx.int16: torch.int16,
+    mx.int32: torch.int32,
+    mx.int64: torch.int64,
+    mx.uint8: torch.uint8,
+    mx.bool_: torch.bool,
+}
 
 
 def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     """
     Convert an MLX array into a PyTorch tensor.
-    Note that this currently COPIES the tensor, so use sparingly.
     """
-    # print(type(val))
-    return torch.tensor(np.array(val))
+    print("coercing mlx to torch")
+    return torch.frombuffer(val, dtype=mlx_dtype_map[val.dtype]).reshape(val.shape)
 
 
 def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):

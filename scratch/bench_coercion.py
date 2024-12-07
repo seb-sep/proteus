@@ -1,6 +1,7 @@
 import time
 
 import mlx.core as mx
+import numpy as np
 import torch
 
 from proteus.utils import coerce_mx_to_torch, coerce_torch_to_mx
@@ -34,20 +35,20 @@ def bench_torch_to_mx(m, n, n_iters=1000):
 def bench_mx_to_torch(m, n, n_iters=1000):
     a = mx.random.normal((m, n))
 
+    print("going through frombuffer...")
     start = time.time()
     for _ in range(n_iters):
-        b = coerce_mx_to_torch(a)
+        b = torch.frombuffer(a, dtype=torch.float32)
     stop = time.time()
-    print(f"coercion in {stop - start} s")
+    print(f"frombuffer in {(stop - start)/n_iters} s")
 
     # Benchmark copying a to b
+    print("going through numpy")
     start = time.time()
     for _ in range(n_iters):
-        # okay this might not copy
-        b = mx.array(a)
-        mx.eval(b)
+        b = torch.tensor(np.array(a))
     stop = time.time()
-    print(f"mlx copy in {stop - start} s")
+    print(f"numpy in {stop - start} s")
 
     # Benchmark assigning b to a
     start = time.time()

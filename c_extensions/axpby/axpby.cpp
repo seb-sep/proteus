@@ -4,9 +4,9 @@
 #include <iostream>
 #include <sstream>
 
-#include "mlx/backend/common/copy.h"
-#include "mlx/backend/common/utils.h"
-#include "mlx/utils.h"
+#include <mlx/backend/common/copy.h>
+#include <mlx/backend/common/utils.h>
+#include <mlx/utils.h>
 
 #include "axpby/axpby.h"
 
@@ -14,10 +14,9 @@
 #include <vecLib/cblas_new.h>
 #endif
 
-#define _METAL_ 1
 #ifdef _METAL_
-#include "mlx/backend/metal/device.h"
-#include "mlx/backend/metal/utils.h"
+#include <mlx/backend/metal/device.h>
+#include <mlx/backend/metal/utils.h>
 #endif
 
 namespace mlx::core {
