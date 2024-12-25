@@ -13,6 +13,8 @@ int mlx_to_ptr(mlx::core::array a) {
     return reinterpret_cast<std::uintptr_t>(a.data<int>());
 }
 
+std::vector<size_t> get_strides(mlx::core::array arr) { return arr.strides(); }
+
 
 // void* offset_ptr = static_cast<void*>(static_cast<char*>(static_cast<void*>(your_data)) - sizeof(size_t));
 // auto arr = mlx::core::array(

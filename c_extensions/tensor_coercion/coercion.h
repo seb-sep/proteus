@@ -10,3 +10,5 @@ mlx::core::array ptr_to_mlx(
     std::vector<int> shape,
     mlx::core::Dtype dtype = mlx::core::float32
 );
+
+std::vector<size_t> get_strides(mlx::core::array arr);

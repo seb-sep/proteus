@@ -46,4 +46,6 @@ NB_MODULE(_ext, m) {
         "shape"_a,
         "dtype"_a = mlx::core::float32,
         "Create an MLX array from a pointer and shape");
+
+    m.def("get_strides", &get_strides);
 }

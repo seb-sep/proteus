@@ -10,19 +10,33 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(BUILD_SHARED_LIBS "Build extensions as a shared library" ON)
 
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+
+
 # ----------------------------- Dependencies -----------------------------
-find_package(MLX CONFIG REQUIRED)
 find_package(
   Python 3.9
   COMPONENTS Interpreter Development.Module
   REQUIRED)
 
+# Get MLX installation path from Python
+execute_process(
+  COMMAND "${Python_EXECUTABLE}" -c "import mlx; print(mlx.__path__[0])"
+  OUTPUT_VARIABLE MLX_PYTHON_PATH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+get_filename_component(MLX_ROOT "${MLX_PYTHON_PATH}/.." ABSOLUTE)
+list(APPEND CMAKE_PREFIX_PATH "${MLX_ROOT}")
+
+
+find_package(MLX CONFIG REQUIRED)
 execute_process(
   COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
   OUTPUT_STRIP_TRAILING_WHITESPACE
   OUTPUT_VARIABLE NB_DIR)
 list(APPEND CMAKE_PREFIX_PATH "${NB_DIR}")
 find_package(nanobind CONFIG REQUIRED)
+
 
 # ----------------------------- Extensions -----------------------------
 
@@ -46,6 +60,7 @@ message(STATUS "mlx_ext LINK_LIBRARIES: ${TARGET_LINK_LIBRARIES}")
 
 get_target_property(TARGET_INCLUDE_DIRS mlx_ext INCLUDE_DIRECTORIES)
 message(STATUS "mlx_ext INCLUDE_DIRECTORIES: ${TARGET_INCLUDE_DIRS}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 # ----------------------------- Metal -----------------------------
 
@@ -69,6 +84,8 @@ if(MLX_BUILD_METAL)
 endif()
 
 # ----------------------------- Python Bindings -----------------------------
+
+
 nanobind_add_module(
   _ext
   NB_STATIC
@@ -79,6 +96,7 @@ nanobind_add_module(
   mlx
   ${CMAKE_CURRENT_LIST_DIR}/bindings.cpp)
 target_link_libraries(_ext PRIVATE mlx_ext)
+
 
 if(BUILD_SHARED_LIBS)
   target_link_options(_ext PRIVATE -Wl,-rpath,@loader_path)
