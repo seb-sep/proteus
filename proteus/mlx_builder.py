@@ -12,6 +12,7 @@ import mlx.nn as nn
 from proteus.arg_marshalers import (
     passthrough_arg_marshaler,
     take_arg_marshaler,
+    t_arg_marshaler,
     clone_arg_marshaler,
     arange_arg_marshaler,
 )
@@ -21,7 +22,7 @@ aten = torch.ops.aten
 
 _fn_mapping = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
-    aten.t.default: (mx.transpose, passthrough_arg_marshaler),
+    aten.t.default: (mx.transpose, t_arg_marshaler),
     aten.transpose.int: (mx.transpose, passthrough_arg_marshaler),
     aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
     aten.relu.default: (nn.relu, passthrough_arg_marshaler),

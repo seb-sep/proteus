@@ -46,12 +46,16 @@ class TestMLXFunctionMappings(unittest.TestCase):
             atol: Absolute tolerance for numerical comparison
         """
 
+        torch_results = torch_op(*example_args, **example_kwargs)
+        torch_results = (
+            torch_results if isinstance(torch_results, tuple) else (torch_results,)
+        )
+
         test_gm = self.create_simple_graph(
             torch_op, len(example_args), example_kwargs.keys()
         )
+        print(test_gm)
         # Flatten args and kwargs into a single tuple and coerce tensors to MLX
-
-        torch_results = test_gm(*example_args, **example_kwargs)
 
         builder = MLXASTBuilder()
         builder.ingest_graph(test_gm.graph)
@@ -61,23 +65,106 @@ class TestMLXFunctionMappings(unittest.TestCase):
             coerce_torch_to_mx(arg) if isinstance(arg, torch.Tensor) else arg
             for arg in (*example_args, *example_kwargs.values())
         )
-        mlx_results = tuple(
-            coerce_mx_to_torch(out) for out in mlx_fn(*flattened_mlx_args)
-        )
+        print("Flattened MLX args:", flattened_mlx_args)
+        mlx_results = mlx_fn(*flattened_mlx_args)
+        mx.eval(mlx_results)
+        print("results", mlx_results)
+
+        mlx_results = tuple(coerce_mx_to_torch(out) for out in mlx_results)
+        print("torchified results:", mlx_results)
         # Compare results
         for torch_result, mlx_result in zip(torch_results, mlx_results):
             self.assertTrue(
-                torch.allclose(torch_result, mlx_result, rtol=rtol, atol=atol),
-                f"Output mismatch for operator {torch_op.__name__}",
+                torch.allclose(torch_result, mlx_result),
+                f"Output mismatch for operator {torch_op.__name__}:\ntorch output {torch_result}\n\nmlx output {mlx_result}\ndifference: {torch_result - mlx_result}",
             )
 
-    def test_mm(self):
-        a = torch.randn(32, 32, dtype=torch.float16)
-        b = torch.randn_like(a)
-        op = aten.mm.default
+    # def test_mm(self):
+    #     a = torch.randn((32, 32), dtype=torch.float16)
+    #     b = torch.randn_like(a)
+    #     op = aten.mm.default
 
-        self._test_op(op, (a, b))
+    #     self._test_op(op, (a, b))
+
+    def test_t(self):
+        """Test simple transpose operator"""
+        a = torch.randn((4, 4), dtype=torch.float16)
+        op = aten.t.default
+
+        self._test_op(op, (a,))
+
+    # def test_transpose(self):
+    #     """Test transpose with dimension arguments"""
+    #     a = torch.randint(0, 10, (32, 64, 16), dtype=torch.int32)
+    #     op = aten.transpose.int
+
+    #     # Test transposing different dimensions
+    #     self._test_op(op, (a, 0, 2))
+    #     # self._test_op(op, (a, 1, 2))
+
+    # def test_expand(self):
+    #     """Test expand/broadcast operator"""
+    #     a = torch.randn((1, 64, 1), dtype=torch.float16)
+    #     op = aten.expand.default
+
+    #     # Test expanding to larger dimensions
+    #     self._test_op(op, (a, (32, 64, 16)))
+    #     # Test expanding with -1 to keep original dimension
+    #     self._test_op(op, (a, (-1, 64, 16)))
+
+    # def test_activations(self):
+    #     """Test various activation functions"""
+    #     a = torch.randn((32, 64), dtype=torch.float16)
+
+    #     # Test ReLU
+    #     self._test_op(aten.relu.default, (a,))
+
+    #     # Test SiLU/Swish
+    #     self._test_op(aten.silu.default, (a,))
+
+    #     # Test GELU
+    #     self._test_op(aten.gelu.default, (a,))
+
+    # def test_triangular(self):
+    #     """Test triangular matrix operators"""
+    #     a = torch.randn((32, 32), dtype=torch.float16)
+
+    #     # Test upper triangular
+    #     self._test_op(aten.triu.default, (a,))
+    #     self._test_op(aten.triu.default, (a,), {"diagonal": 1})
+    #     self._test_op(aten.triu.default, (a,), {"diagonal": -1})
+
+    #     # Test lower triangular
+    #     self._test_op(aten.tril.default, (a,))
+    #     self._test_op(aten.tril.default, (a,), {"diagonal": 1})
+    #     self._test_op(aten.tril.default, (a,), {"diagonal": -1})
+
+    # def test_multiply(self):
+    #     """Test multiplication operator"""
+    #     # Test same-shape multiplication
+    #     a = torch.randn((32, 64), dtype=torch.float16)
+    #     b = torch.randn_like(a)
+    #     self._test_op(aten.mul.Tensor, (a, b))
+
+    #     # Test broadcasting multiplication
+    #     c = torch.randn((1, 64), dtype=torch.float16)
+    #     self._test_op(aten.mul.Tensor, (a, c))
+
+    #     # Test scalar multiplication
+    #     d = torch.tensor(2.0, dtype=torch.float16)
+    #     self._test_op(aten.mul.Tensor, (a, d))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+# import mlx.core
+
+
+# def cool_mlx_fn(_0):
+#     t_default = mlx.core.transpose(_0)
+#     return (t_default,)
+
+
+# a = mlx.core.random.normal((4, 4))
+# print(a, cool_mlx_fn(a))

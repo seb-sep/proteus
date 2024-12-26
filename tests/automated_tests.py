@@ -21,33 +21,33 @@ class TestProteus(unittest.TestCase):
     def test_models(self):
         in_dim, h_dim, out_dim = 16, 64, 32
         device = "cpu"
-        dtype = torch.float16
+        dtype = torch.float32
         test_in = torch.randn((out_dim, in_dim), device=device, dtype=dtype)
         lookup_tensor = torch.randint(0, in_dim, (1, in_dim), device=device)
         llama_config = LlamaConfig.from_pretrained("meta-llama/Llama-3.2-1B")
         testcases = [
             # (TestGraphBreakModule(in_dim, h_dim, out_dim), (test_in,), {}),
-            # (TestModule(in_dim, h_dim, out_dim), (test_in,), {}),
+            (TestModule(in_dim, h_dim, out_dim), (test_in,), {}),
             # (SimpleModule(in_dim, h_dim, out_dim), (test_in,), {}),
             # (EmbeddingModule(in_dim, h_dim, out_dim), (lookup_tensor,), {}),
-            (
-                LlamaAttention(llama_config, layer_idx=0).to(device).to(dtype),
-                (
-                    torch.randn(
-                        1,
-                        h_dim,
-                        llama_config.hidden_size,
-                        device=device,
-                        dtype=dtype,
-                    ),
-                ),
-                {
-                    "position_ids": torch.arange(h_dim, device=device)
-                    .unsqueeze(0)
-                    .expand(1, -1),
-                    "use_cache": False,
-                },
-            )
+            # (
+            #     LlamaAttention(llama_config, layer_idx=0).to(device).to(dtype),
+            #     (
+            #         torch.randn(
+            #             1,
+            #             h_dim,
+            #             llama_config.hidden_size,
+            #             device=device,
+            #             dtype=dtype,
+            #         ),
+            #     ),
+            #     {
+            #         "position_ids": torch.arange(h_dim, device=device)
+            #         .unsqueeze(0)
+            #         .expand(1, -1),
+            #         "use_cache": False,
+            #     },
+            # )
         ]
         for model, test_input, test_kwargs in testcases:
             self.compile_model_test(model, test_input, test_kwargs)

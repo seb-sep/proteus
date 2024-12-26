@@ -92,6 +92,11 @@ std::vector<size_t> get_strides(mlx::core::array arr) { return arr.strides(); }
 // }
 
 mlx::core::array ptr_to_mlx(uintptr_t data_ptr, std::vector<int> shape, mlx::core::Dtype type) {
+    return mlx::core::array({0., 0., 0.});
+}
+
+/*
+mlx::core::array ptr_to_mlx(uintptr_t data_ptr, std::vector<int> shape, mlx::core::Dtype type) {
     MTL::Buffer* metal_buffer = reinterpret_cast<MTL::Buffer*>(reinterpret_cast<void*>(data_ptr));
     metal_buffer->retain();
 
@@ -111,7 +116,11 @@ mlx::core::array ptr_to_mlx(uintptr_t data_ptr, std::vector<int> shape, mlx::cor
         default:
             std::cout << "Unknown (" << static_cast<int>(mode) << ")" << std::endl;
     }
+    std::cout << "Length of buffer: " << metal_buffer->length() << std::endl;
     
+    // auto stream = mlx::core::new_stream(mlx::core::Device::gpu);
+    // mlx::core::set_default_stream(stream);
+
 
     // Create MLX buffer with the Metal buffer directly, not its contents
     mlx::core::allocator::Buffer buffer{metal_buffer};
@@ -122,3 +131,4 @@ mlx::core::array ptr_to_mlx(uintptr_t data_ptr, std::vector<int> shape, mlx::cor
     
     return arr;
 }
+*/

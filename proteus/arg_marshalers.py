@@ -54,15 +54,19 @@ def passthrough_arg_marshaler(
         ast_arg = convert_arg_to_ast(arg)
         if ast_arg is not None:
             ast_args.append(ast_arg)
-    # Convert kwargs values and store in new dict
-    kwargs = {k: convert_arg_to_ast(v) for k, v in kwargs.items()}
     # Convert kwargs to ast.keyword nodes
     ast_kwargs = [
-        ast.keyword(arg=k, value=ast.Name(id=v, ctx=ast.Load()))
-        for k, v in kwargs.items()
+        ast.keyword(arg=k, value=convert_arg_to_ast(v)) for k, v in kwargs.items()
     ]
 
     return ast_args, ast_kwargs
+
+
+def t_arg_marshaler(
+    args: List, kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """For aten.t.default, which we're assuming is only for 2D tensors."""
+    return passthrough_arg_marshaler(args, {"axes": (1, 0)})
 
 
 def take_arg_marshaler(

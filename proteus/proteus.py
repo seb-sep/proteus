@@ -147,7 +147,7 @@ def mlx_compiler(
 
     def _mlx_compiler(gm: fx.GraphModule, sample_inputs):
 
-        # print(gm.graph)
+        print(gm.graph)
         aten_graph = make_fx(gm)(*sample_inputs)
         # print(aten_graph.graph)
 

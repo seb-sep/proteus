@@ -11,12 +11,13 @@ using namespace nb::literals;
 
 using namespace mlx::core;
 
-NB_MODULE(_ext, m) {
+NB_MODULE(cpp_ext, m) {
   m.doc() = "Sample extension for MLX";
 
+  /*
   m.def(
       "axpby",
-      &axpby,
+      &my_ext::axpby,
       "x"_a,
       "y"_a,
       "alpha"_a,
@@ -46,6 +47,10 @@ NB_MODULE(_ext, m) {
         "shape"_a,
         "dtype"_a = mlx::core::float32,
         "Create an MLX array from a pointer and shape");
+    */
 
-    m.def("get_strides", &get_strides);
+    m.def("get_strides", 
+      &get_strides,
+      "arr"_a,
+      "get the strides of the mlx array as a list of ints");
 }

@@ -11,7 +11,7 @@ from torch._functorch.aot_autograd import (
     aot_function,
 )
 
-from c_extensions import ptr_to_mlx
+from c_extensions import get_strides
 
 
 torch_dtype_map = {
@@ -55,7 +55,9 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     Convert an MLX array into a PyTorch tensor.
     """
     print("coercing mlx to torch")
-    return torch.frombuffer(val, dtype=mlx_dtype_map[val.dtype]).reshape(val.shape)
+    strides = get_strides(val)
+    tensor = torch.frombuffer(val, dtype=mlx_dtype_map[val.dtype])
+    return torch.as_strided(tensor, val.shape, strides)
 
 
 def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):
