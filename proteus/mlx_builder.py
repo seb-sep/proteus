@@ -15,15 +15,15 @@ from proteus.arg_marshalers import (
     t_arg_marshaler,
     clone_arg_marshaler,
     arange_arg_marshaler,
+    transpose_int_arg_marshaler,
 )
-import proteus.custom_ops.custom_ops as custom_ops
 
 aten = torch.ops.aten
 
 _fn_mapping = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
     aten.t.default: (mx.transpose, t_arg_marshaler),
-    aten.transpose.int: (mx.transpose, passthrough_arg_marshaler),
+    aten.transpose.int: (mx.swapaxes, transpose_int_arg_marshaler),
     aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
     aten.relu.default: (nn.relu, passthrough_arg_marshaler),
     aten.silu.default: (nn.silu, passthrough_arg_marshaler),
@@ -137,7 +137,7 @@ class MLXASTBuilder:
     def ingest_graph(self, graph: Graph):
         for node in graph.nodes:
             if node.op == "placeholder":
-                self.addArgument(node.target)
+                self.addArgument(node.name)
             elif node.op == "call_function":
                 self.addFunctionCall(node.target, node.name, node.args, node.kwargs)
             elif node.op == "output":

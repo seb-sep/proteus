@@ -2,12 +2,12 @@ import ast
 from typing import Dict, List, Tuple
 from pprint import pprint
 
-from torch import fx
+from torch.fx import Node, Graph, immutable_collections
 import torch
 
 
 def passthrough_arg_marshaler(
-    args: List[fx.Node], kwargs: Dict
+    args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
     """Map input args and kwargs directly to an AST arg list and keyword list respectively."""
 
@@ -15,7 +15,7 @@ def passthrough_arg_marshaler(
     # remember that your arg names are just SSA values from the fx graph so just take the name
     # and assume its already been registered as a variable somewhere in the AST
     def convert_arg_to_ast(arg):
-        if isinstance(arg, fx.Node):
+        if isinstance(arg, Node):
             return ast.Name(id=arg.name, ctx=ast.Load())
         elif isinstance(arg, torch.dtype):
             return ast.Attribute(
@@ -28,7 +28,7 @@ def passthrough_arg_marshaler(
         elif isinstance(
             arg,
             (
-                fx.immutable_collections.immutable_list,
+                immutable_collections.immutable_list,
                 tuple,
                 str,
                 int,
@@ -63,14 +63,14 @@ def passthrough_arg_marshaler(
 
 
 def t_arg_marshaler(
-    args: List, kwargs: Dict
+    args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
     """For aten.t.default, which we're assuming is only for 2D tensors."""
     return passthrough_arg_marshaler(args, {"axes": (1, 0)})
 
 
 def take_arg_marshaler(
-    args: List, kwargs: Dict
+    args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
     """Map input args and kwargs from torch.select to mx.take."""
 
@@ -103,6 +103,20 @@ def arange_arg_marshaler(
     print(filtered_kwargs)
 
     return passthrough_arg_marshaler(args, filtered_kwargs)
+
+
+def transpose_int_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Convert args of aten.transpose.int op."""
+    assert len(kwargs) == 0 and len(args) == 3
+    tensor, a1, a2 = args
+    assert (
+        tensor.type == torch.Tensor
+        and (isinstance(a1, int) or a1.type == torch.SymInt)
+        and (isinstance(a2, int) or a2.type == torch.SymInt)
+    )
+    return passthrough_arg_marshaler(args, {})
 
 
 # def cat_marshaler(args: List, kwargs: Dict) -> Tuple[List[ast.AST], List[ast.keyword]]:

@@ -1,5 +1,5 @@
 import unittest
-from typing import Callable, Any, Tuple, Dict, Iterable
+from typing import Callable, Any, Tuple, Dict, Iterable, List
 
 import torch
 from torch.fx import GraphModule, Graph, Node
@@ -7,6 +7,7 @@ import mlx.core as mx
 
 from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
 from proteus.mlx_builder import MLXASTBuilder, aten_to_mlx
+from torch.fx.experimental.proxy_tensor import make_fx
 
 aten = torch.ops.aten
 
@@ -14,16 +15,39 @@ aten = torch.ops.aten
 class TestMLXFunctionMappings(unittest.TestCase):
 
     def create_simple_graph(
-        self, torch_op: Callable, num_args: int = 0, example_kwargs: Iterable[str] = ()
-    ) -> GraphModule:
-        graph = Graph()
-        arg_nodes = tuple(graph.placeholder(f"_{i}") for i in range(num_args))
-        kwarg_nodes = {key: graph.placeholder(f"_{key}") for key in example_kwargs}
-        call_site = graph.call_function(torch_op, arg_nodes, kwarg_nodes)
-        ret = graph.output((call_site,))
-        gm = GraphModule({}, graph)
-        gm.recompile()
-        return gm
+        self,
+        torch_op: Callable,
+        example_args: List,
+        example_kwargs: Dict[str, Any] = (),
+    ) -> Tuple[GraphModule, List]:
+
+        ret_gm: GraphModule = None
+        ret_example_inputs = None
+
+        # dynamo is evil and will swap the order of inputs???
+        def _capture_graph_backend(gm: GraphModule, example_inputs):
+            nonlocal ret_gm
+            ret_gm = gm
+            nonlocal ret_example_inputs
+            ret_example_inputs = example_inputs
+            return gm.forward
+
+        def foo(*args, **kwargs):
+            return torch_op(*args, **kwargs)
+
+        compiled_fn = torch.compile(foo, backend=_capture_graph_backend)
+        out = compiled_fn(*example_args, **example_kwargs)
+        # note that the end to end function is still correct, it's just the intermediary graph module which does unexpected things
+        assert torch.allclose(out, torch_op(*example_args, **example_kwargs))
+        assert isinstance(ret_gm, GraphModule)
+        # # strip all unused args out of the graphmodule
+        # for node in ret_gm.graph.find_nodes(op="placeholder"):
+        #     assert isinstance(node, Node)
+        #     if len(node.users) == 0:
+        #         ret_gm.graph.erase_node(node)
+
+        # ret_gm.recompile()
+        return ret_gm, ret_example_inputs
 
     def _test_op(
         self,
@@ -46,15 +70,16 @@ class TestMLXFunctionMappings(unittest.TestCase):
             atol: Absolute tolerance for numerical comparison
         """
 
-        torch_results = torch_op(*example_args, **example_kwargs)
+        test_gm, example_inputs = self.create_simple_graph(
+            torch_op, example_args, example_kwargs
+        )
+        print(test_gm)
+
+        torch_results = test_gm(*example_inputs)
         torch_results = (
             torch_results if isinstance(torch_results, tuple) else (torch_results,)
         )
 
-        test_gm = self.create_simple_graph(
-            torch_op, len(example_args), example_kwargs.keys()
-        )
-        print(test_gm)
         # Flatten args and kwargs into a single tuple and coerce tensors to MLX
 
         builder = MLXASTBuilder()
@@ -62,29 +87,34 @@ class TestMLXFunctionMappings(unittest.TestCase):
         mlx_fn = builder.export()
 
         flattened_mlx_args = tuple(
-            coerce_torch_to_mx(arg) if isinstance(arg, torch.Tensor) else arg
-            for arg in (*example_args, *example_kwargs.values())
+            (
+                coerce_torch_to_mx(arg)
+                if isinstance(arg, torch.Tensor)
+                else int(arg) if isinstance(arg, torch.SymInt) else arg
+            )
+            for arg in example_inputs
         )
-        print("Flattened MLX args:", flattened_mlx_args)
+        # print("Flattened MLX args:", flattened_mlx_args)
+        # print("oriignal PyTorch args:", example_args, example_kwargs)
         mlx_results = mlx_fn(*flattened_mlx_args)
         mx.eval(mlx_results)
-        print("results", mlx_results)
+        # print("results", mlx_results)
 
         mlx_results = tuple(coerce_mx_to_torch(out) for out in mlx_results)
-        print("torchified results:", mlx_results)
+        # print("torchified results:", mlx_results)
         # Compare results
         for torch_result, mlx_result in zip(torch_results, mlx_results):
             self.assertTrue(
-                torch.allclose(torch_result, mlx_result),
+                torch.allclose(torch_result, mlx_result, rtol=rtol, atol=atol),
                 f"Output mismatch for operator {torch_op.__name__}:\ntorch output {torch_result}\n\nmlx output {mlx_result}\ndifference: {torch_result - mlx_result}",
             )
 
-    # def test_mm(self):
-    #     a = torch.randn((32, 32), dtype=torch.float16)
-    #     b = torch.randn_like(a)
-    #     op = aten.mm.default
+    def test_mm(self):
+        a = torch.randn((32, 16), dtype=torch.float16)
+        b = torch.randn((16, 32), dtype=torch.float16)
+        op = aten.mm.default
 
-    #     self._test_op(op, (a, b))
+        self._test_op(op, (a, b))
 
     def test_t(self):
         """Test simple transpose operator"""
@@ -93,14 +123,14 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
         self._test_op(op, (a,))
 
-    # def test_transpose(self):
-    #     """Test transpose with dimension arguments"""
-    #     a = torch.randint(0, 10, (32, 64, 16), dtype=torch.int32)
-    #     op = aten.transpose.int
+    def test_transpose(self):
+        """Test transpose with dimension arguments"""
+        a = torch.randint(0, 10, (32, 64, 16), dtype=torch.int32)
+        op = aten.transpose.int
 
-    #     # Test transposing different dimensions
-    #     self._test_op(op, (a, 0, 2))
-    #     # self._test_op(op, (a, 1, 2))
+        # Test transposing different dimensions
+        self._test_op(op, (a, 0, 1))
+        self._test_op(op, (a, 1, 2))
 
     # def test_expand(self):
     #     """Test expand/broadcast operator"""

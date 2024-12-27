@@ -149,7 +149,7 @@ def mlx_compiler(
 
         print(gm.graph)
         aten_graph = make_fx(gm)(*sample_inputs)
-        # print(aten_graph.graph)
+        print(aten_graph.graph)
 
         builder = MLXASTBuilder()
         builder.ingest_graph(aten_graph.graph)
