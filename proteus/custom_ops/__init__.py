@@ -1,7 +1,14 @@
+from typing import List, Union
+
 import mlx.core as mx
 
 
-def linear(x: mx.array, w: mx.array, b: mx.array):
+def expand(x: mx.array, shape: List[int]) -> mx.array:
+    shape = [x.shape[i] if val == -1 else val for i, val in enumerate(shape)]
+    return mx.broadcast_to(x, shape)
+
+
+def linear(x: mx.array, w: mx.array, b: Union[mx.array, None]):
     if b is not None:
         out = mx.addmm(b, x, w.T)
     else:

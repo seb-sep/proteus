@@ -119,6 +119,17 @@ def transpose_int_arg_marshaler(
     return passthrough_arg_marshaler(args, {})
 
 
+def expand_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Convert args of aten.expand.default op."""
+
+    assert len(kwargs) == 0
+    tensor, sizes = args
+    assert tensor.type == torch.Tensor and isinstance(sizes, tuple)
+    return passthrough_arg_marshaler(args, {})
+
+
 # def cat_marshaler(args: List, kwargs: Dict) -> Tuple[List[ast.AST], List[ast.keyword]]:
 #     """Map input args and kwargs from torch.cat to mlx.concatenate."""
 #     for k, v in kwargs.items():

@@ -16,7 +16,10 @@ from proteus.arg_marshalers import (
     clone_arg_marshaler,
     arange_arg_marshaler,
     transpose_int_arg_marshaler,
+    expand_arg_marshaler,
 )
+
+from proteus.custom_ops import expand
 
 aten = torch.ops.aten
 
@@ -24,7 +27,7 @@ _fn_mapping = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
     aten.t.default: (mx.transpose, t_arg_marshaler),
     aten.transpose.int: (mx.swapaxes, transpose_int_arg_marshaler),
-    aten.expand.default: (mx.broadcast_to, passthrough_arg_marshaler),
+    aten.expand.default: (expand, expand_arg_marshaler),
     aten.relu.default: (nn.relu, passthrough_arg_marshaler),
     aten.silu.default: (nn.silu, passthrough_arg_marshaler),
     aten.gelu.default: (nn.gelu, passthrough_arg_marshaler),
@@ -92,12 +95,17 @@ def aten_to_mlx(
 
 
 def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
+    """
+    Manually map MLX functions to their fully qualified attribute path.
+    This function is unfortunately necessary because MLX's `mx.compile`d functions being JIT compiled
+    plain nanobind functions don't have attributes like `__qualname__` or `__module__`.
+
+    Instantiate the dict on each call for now for cleanness but move it out if it gets too big.
+    """
     return {
         nn.silu: ["mlx", "nn", "silu"],
         nn.relu: ["mlx", "nn", "relu"],
         nn.gelu: ["mlx", "nn", "gelu"],
-        mx.array.__getitem__: ["mlx", "core", "array", "__getitem__"],
-        mx.array.__copy__: ["mlx", "core", "array", "__copy__"],
     }.get(fn, None)
 
 
@@ -110,7 +118,7 @@ def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:
     # for example, module_strs might be ['mlx', 'linalg', 'matmul']
     module_strs = fn_to_manual_module(fn)
     if not module_strs:
-        module_strs = getmodule(fn).__name__.split(".") + [fn.__name__]
+        module_strs = (fn.__module__ + "." + fn.__qualname__).split(".")
 
     attr_ast = ast.Name(id=module_strs.pop(0), ctx=ast.Load())
     while module_strs:
@@ -127,7 +135,7 @@ class MLXASTBuilder:
         # import mlx.core as mx
         self.imports = [
             ast.Import(names=[ast.alias(name="mlx", asname=None)]),
-            # ast.Import(names=[ast.alias(name="src", asname=None)]),
+            ast.Import(names=[ast.alias(name="proteus", asname=None)]),
         ]
         # mlx function calls in order of execution
         self.calls: List[ast.Call] = []

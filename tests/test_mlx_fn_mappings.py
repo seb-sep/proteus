@@ -132,15 +132,15 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(op, (a, 0, 1))
         self._test_op(op, (a, 1, 2))
 
-    # def test_expand(self):
-    #     """Test expand/broadcast operator"""
-    #     a = torch.randn((1, 64, 1), dtype=torch.float16)
-    #     op = aten.expand.default
+    def test_expand(self):
+        """Test expand/broadcast operator"""
+        a = torch.randn((1, 64, 1), dtype=torch.float16)
+        op = aten.expand.default
 
-    #     # Test expanding to larger dimensions
-    #     self._test_op(op, (a, (32, 64, 16)))
-    #     # Test expanding with -1 to keep original dimension
-    #     self._test_op(op, (a, (-1, 64, 16)))
+        # Test expanding to larger dimensions
+        self._test_op(op, (a, (32, 64, 16)))
+        # Test expanding with -1 to keep original dimension
+        self._test_op(op, (a, (-1, 64, 16)))
 
     # def test_activations(self):
     #     """Test various activation functions"""
