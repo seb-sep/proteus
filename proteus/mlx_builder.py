@@ -14,9 +14,9 @@ from proteus.arg_marshalers import (
     take_arg_marshaler,
     t_arg_marshaler,
     clone_arg_marshaler,
-    arange_arg_marshaler,
     transpose_int_arg_marshaler,
     expand_arg_marshaler,
+    module_strs_to_ast,
 )
 
 from proteus.custom_ops import expand
@@ -48,9 +48,9 @@ _fn_mapping = {
     aten.embedding.default: (mx.array.__getitem__, passthrough_arg_marshaler),
     # aten.linear.default: (custom_ops.linear, passthrough_arg_marshaler),
     # is it ok to have multiple aten ops map to the same mlx fn like this?
-    # TODO: device removal in arange marshaling sohuld be universal
-    aten.arange.start: (mx.arange, arange_arg_marshaler),
-    aten.arange.default: (mx.arange, arange_arg_marshaler),
+    # NOTE: remember that you ran into issues with what to do with device kwarg for arange
+    aten.arange.start: (mx.arange, passthrough_arg_marshaler),
+    aten.arange.default: (mx.arange, passthrough_arg_marshaler),
     aten.unsqueeze.default: (mx.expand_dims, passthrough_arg_marshaler),
     aten.full.default: (mx.full, passthrough_arg_marshaler),
     aten.view.default: (mx.view, passthrough_arg_marshaler),
@@ -121,12 +121,7 @@ def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:
     if not module_strs:
         module_strs = (fn.__module__ + "." + fn.__qualname__).split(".")
 
-    attr_ast = ast.Name(id=module_strs.pop(0), ctx=ast.Load())
-    while module_strs:
-        attr_ast = ast.Attribute(
-            value=attr_ast, attr=module_strs.pop(0), ctx=ast.Load()
-        )
-    return attr_ast
+    return module_strs_to_ast(module_strs)
 
 
 class MLXASTBuilder:

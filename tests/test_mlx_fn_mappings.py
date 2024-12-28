@@ -366,10 +366,24 @@ class TestMLXFunctionMappings(unittest.TestCase):
         c = torch.randn(100, dtype=torch.float16)
         self._test_op(aten.select.int, (c, 0, 50))
 
+    def test_arange(self):
+        """Test arange operators"""
+        # Test arange.default with just end
+        self._test_op(aten.arange.default, (10,))
+        self._test_op(aten.arange.default, (100,))
+
+        # Test arange.start with start and end
+        self._test_op(aten.arange.start, (5, 25))
+        self._test_op(aten.arange.start, (-10, 10))
+
+        # Test with different dtypes
+        self._test_op(aten.arange.default, (10,), {"dtype": torch.float16})
+        self._test_op(aten.arange.start, (0, 10), {"dtype": torch.int32})
+
 
 if __name__ == "__main__":
     unittest.main()
-    # TestMLXFunctionMappings().test_select()
+    # TestMLXFunctionMappings().test_arange()
 
 # import mlx.core
 

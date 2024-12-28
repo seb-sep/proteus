@@ -1,5 +1,6 @@
 from pprint import pprint
 import numpy as np
+from typing import Dict
 
 import mlx.core as mx
 
@@ -14,7 +15,7 @@ from torch._functorch.aot_autograd import (
 from c_extensions import get_strides
 
 
-torch_dtype_map = {
+torch_dtype_map: Dict[torch.dtype, mx.Dtype] = {
     torch.float32: mx.float32,
     torch.float16: mx.float16,
     torch.bfloat16: mx.bfloat16,
@@ -37,7 +38,7 @@ def coerce_torch_to_mx(val: torch.Tensor) -> mx.array:
     return mx.array(val.numpy(force=True))
 
 
-mlx_dtype_map = {
+mlx_dtype_map: Dict[torch.dtype, mx.Dtype] = {
     mx.float32: torch.float32,
     mx.float16: torch.float16,
     mx.bfloat16: torch.bfloat16,

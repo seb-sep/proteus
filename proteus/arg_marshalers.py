@@ -1,9 +1,59 @@
 import ast
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 from pprint import pprint
 
 from torch.fx import Node, Graph, immutable_collections
 import torch
+
+from proteus.utils import torch_dtype_map
+
+
+def module_strs_to_ast(module_strs: List[str]) -> Union[ast.Name, ast.Attribute]:
+    """
+    Convert some Python module attribute string to its respective AST, where the
+    attribute string is a list of strings representing attr accesses.
+    For example: `mlx.core.float16` would be passed as `['mlx', 'core', 'float16']`.
+    """
+
+    attr_ast = ast.Name(id=module_strs.pop(0), ctx=ast.Load())
+    while module_strs:
+        attr_ast = ast.Attribute(
+            value=attr_ast, attr=module_strs.pop(0), ctx=ast.Load()
+        )
+    return attr_ast
+
+
+def convert_arg_to_ast(arg) -> ast.AST:
+    if isinstance(arg, Node):
+        return ast.Name(id=arg.name, ctx=ast.Load())
+    elif isinstance(arg, torch.dtype):
+        mlx_dtype = torch_dtype_map[arg]
+        return module_strs_to_ast(str(mlx_dtype).split("."))
+    # elif isinstance(arg, torch.device):
+    #     return ast.Attribute(
+    #         value=ast.Name(id="mx", ctx=ast.Load()), attr="gpu", ctx=ast.Load()
+    #     )
+    elif isinstance(
+        arg,
+        (
+            immutable_collections.immutable_list,
+            tuple,
+            str,
+            int,
+            float,
+            type(None),
+        ),
+    ):
+        parsed = ast.parse(repr(arg))
+        if isinstance(parsed.body[0], ast.Expr):
+            return parsed.body[0].value
+        else:
+            raise ValueError(f"Failed to parse fx value {parsed} of type {type(arg)}")
+    else:
+        print(f"Unexpected arg: {arg}")
+        raise ValueError(
+            f"Unexpected AST structure for argument: {arg} of type {type(arg)}"
+        )
 
 
 def passthrough_arg_marshaler(
@@ -14,40 +64,6 @@ def passthrough_arg_marshaler(
     # Convert args to ast.Name nodes
     # remember that your arg names are just SSA values from the fx graph so just take the name
     # and assume its already been registered as a variable somewhere in the AST
-    def convert_arg_to_ast(arg):
-        if isinstance(arg, Node):
-            return ast.Name(id=arg.name, ctx=ast.Load())
-        elif isinstance(arg, torch.dtype):
-            return ast.Attribute(
-                value=ast.Name(id="mlx", ctx=ast.Load()), attr="float16", ctx=ast.Load()
-            )
-        # elif isinstance(arg, torch.device):
-        #     return ast.Attribute(
-        #         value=ast.Name(id="mx", ctx=ast.Load()), attr="gpu", ctx=ast.Load()
-        #     )
-        elif isinstance(
-            arg,
-            (
-                immutable_collections.immutable_list,
-                tuple,
-                str,
-                int,
-                float,
-                type(None),
-            ),
-        ):
-            # TODO: This is as SUPER hacky way to get the list
-            parsed = ast.parse(repr(arg))
-            if isinstance(parsed.body[0], ast.Expr):
-                return parsed.body[0].value
-            else:
-                raise ValueError(f"Failed to parse fx immutable list {parsed}")
-        else:
-            print(f"Unexpected arg: {arg}")
-            raise ValueError(
-                f"Unexpected AST structure for argument: {arg} of type {type(arg)}"
-            )
-
     # Convert args
     ast_args = []
     for arg in args:
@@ -87,22 +103,6 @@ def clone_arg_marshaler(
     # Keep the tensor arg passed first, but swap the subsequent dim and index args
 
     return passthrough_arg_marshaler(args, {})
-
-
-def arange_arg_marshaler(
-    args: List, kwargs: Dict
-) -> Tuple[List[ast.AST], List[ast.keyword]]:
-    """Map input args and kwargs from torch.clone to __clone__."""
-
-    # Copy kwargs but remove 'device' key if present
-    filtered_kwargs = {
-        k: v
-        for k, v in kwargs.items()
-        if k != "device" and not isinstance(v, (torch.device, torch.dtype))
-    }
-    print(filtered_kwargs)
-
-    return passthrough_arg_marshaler(args, filtered_kwargs)
 
 
 def transpose_int_arg_marshaler(
