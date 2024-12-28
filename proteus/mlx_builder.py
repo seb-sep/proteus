@@ -99,6 +99,7 @@ def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
     Manually map MLX functions to their fully qualified attribute path.
     This function is unfortunately necessary because MLX's `mx.compile`d functions being JIT compiled
     plain nanobind functions don't have attributes like `__qualname__` or `__module__`.
+    TODO: see if some clever use of mx.disable_compile() gets around this lack of attrs
 
     Instantiate the dict on each call for now for cleanness but move it out if it gets too big.
     """

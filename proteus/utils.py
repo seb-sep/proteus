@@ -1,5 +1,5 @@
 from pprint import pprint
-import ctypes
+import numpy as np
 
 import mlx.core as mx
 
@@ -56,7 +56,14 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     """
     print("coercing mlx to torch")
     strides = get_strides(val)
-    tensor = torch.frombuffer(val, dtype=mlx_dtype_map[val.dtype])
+    # if the strides are kooky (last stride is not 1), the way you create
+    # the buffer must be different, need enough raw elements to capture all values in the stride
+    # you should probably never run into this issue, for now, just copy and you can
+    # always inline a copy into the compiled code later if this check is slow
+    if strides and (strides[-1] != 1 or strides[0] != val.shape[-1]):
+        return torch.from_numpy(np.array(val))
+
+    tensor = torch.frombuffer(val, count=val.size, dtype=mlx_dtype_map[val.dtype])
     return torch.as_strided(tensor, val.shape, strides)
 
 
