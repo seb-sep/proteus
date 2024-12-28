@@ -380,12 +380,85 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.arange.default, (10,), {"dtype": torch.float16})
         self._test_op(aten.arange.start, (0, 10), {"dtype": torch.int32})
 
+    def test_unsqueeze(self):
+        """Test unsqueeze operator"""
+        # Test unsqueezing 2D tensor along dim 0
+        a = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.unsqueeze.default, (a, 0))
+
+        # Test unsqueezing 2D tensor along dim 1
+        self._test_op(aten.unsqueeze.default, (a, 1))
+
+        # Test unsqueezing 2D tensor along dim 2
+        self._test_op(aten.unsqueeze.default, (a, 2))
+
+        # Test unsqueezing 1D tensor
+        b = torch.randn(100, dtype=torch.float16)
+        self._test_op(aten.unsqueeze.default, (b, 0))
+        self._test_op(aten.unsqueeze.default, (b, 1))
+
+        # Test unsqueezing 3D tensor
+        c = torch.randn((16, 8, 4), dtype=torch.float16)
+        self._test_op(aten.unsqueeze.default, (c, 0))
+        self._test_op(aten.unsqueeze.default, (c, 1))
+        self._test_op(aten.unsqueeze.default, (c, 2))
+        self._test_op(aten.unsqueeze.default, (c, 3))
+
+    def test_full(self):
+        """Test full operator"""
+        # Test basic 2D tensor creation
+        self._test_op(aten.full.default, ((32, 64), 1.0))
+        self._test_op(aten.full.default, ((32, 64), 0.0))
+        self._test_op(aten.full.default, ((32, 64), -1.0))
+
+        # Test 1D tensor creation
+        self._test_op(aten.full.default, ((100,), 5.0))
+
+        # Test 3D tensor creation
+        self._test_op(aten.full.default, ((16, 8, 4), 2.0))
+
+        # Test with different dtypes
+        self._test_op(aten.full.default, ((32, 64), 1.0), {"dtype": torch.float16})
+        self._test_op(aten.full.default, ((32, 64), 1.0), {"dtype": torch.int32})
+        self._test_op(aten.full.default, ((32, 64), 1.0), {"dtype": torch.float32})
+
+        # Test with integer fill values
+        self._test_op(aten.full.default, ((32, 64), 1))
+        self._test_op(aten.full.default, ((32, 64), 0))
+        self._test_op(aten.full.default, ((32, 64), -1))
+
+    def test_view(self):
+        """Test view operator"""
+        # Test basic 2D tensor reshaping
+        a = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.view.default, (a, (64, 32)))
+        self._test_op(aten.view.default, (a, (2048,)))
+        self._test_op(aten.view.default, (a, (8, 8, 32)))
+
+        # Test 1D tensor reshaping
+        b = torch.randn(100, dtype=torch.float16)
+        self._test_op(aten.view.default, (b, (10, 10)))
+        self._test_op(aten.view.default, (b, (4, 25)))
+        self._test_op(aten.view.default, (b, (2, 2, 25)))
+
+        # Test 3D tensor reshaping
+        c = torch.randn((16, 8, 4), dtype=torch.float16)
+        self._test_op(aten.view.default, (c, (512,)))
+        self._test_op(aten.view.default, (c, (32, 16)))
+        self._test_op(aten.view.default, (c, (8, 8, 8)))
+        self._test_op(aten.view.default, (c, (4, 4, 4, 8)))
+
+        # Test with different dtypes
+        d = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten.view.default, (d, (64, 32)))
+
+        e = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        self._test_op(aten.view.default, (e, (2048,)))
+
 
 if __name__ == "__main__":
-    unittest.main()
-    # TestMLXFunctionMappings().test_arange()
-
-# import mlx.core
+    # unittest.main()
+    TestMLXFunctionMappings().test_view()
 
 
 # def cool_mlx_fn(_0):

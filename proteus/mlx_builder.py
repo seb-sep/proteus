@@ -53,7 +53,9 @@ _fn_mapping = {
     aten.arange.default: (mx.arange, passthrough_arg_marshaler),
     aten.unsqueeze.default: (mx.expand_dims, passthrough_arg_marshaler),
     aten.full.default: (mx.full, passthrough_arg_marshaler),
-    aten.view.default: (mx.view, passthrough_arg_marshaler),
+    # NOTE: aten view only meant to work on contiguous tensors and is ALWAYS zero-copy,
+    # presumably mx.reshape copies in the non-contiguous case
+    aten.view.default: (mx.reshape, passthrough_arg_marshaler),
     # aten.slice.Tensor: (custom_ops.slice, passthrough_arg_marshaler),
     # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
     aten.clone.default: (mx.array.__copy__, clone_arg_marshaler),
