@@ -6,7 +6,7 @@ from torch.fx import GraphModule, Graph, Node
 import mlx.core as mx
 
 from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
-from proteus.mlx_builder import MLXASTBuilder, aten_to_mlx
+from proteus.mlx_builder import MLXASTBuilder
 from torch.fx.experimental.proxy_tensor import make_fx
 
 aten = torch.ops.aten
@@ -453,12 +453,60 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.view.default, (d, (64, 32)))
 
         e = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+
         self._test_op(aten.view.default, (e, (2048,)))
+
+    def test_clone(self):
+        """Test clone operator"""
+        # Test basic 2D tensor cloning
+        a = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.clone.default, (a,))
+
+        # Test 1D tensor cloning
+        b = torch.randn(100, dtype=torch.float16)
+        self._test_op(aten.clone.default, (b,))
+
+        # Test 3D tensor cloning
+        c = torch.randn((16, 8, 4), dtype=torch.float16)
+        self._test_op(aten.clone.default, (c,))
+
+        # Test with different dtypes
+        d = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten.clone.default, (d,))
+
+        e = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        self._test_op(aten.clone.default, (e,))
+
+    def test_copy(self):
+        """Test copy operator"""
+        # Test basic 2D tensor copying
+        a = torch.randn((32, 64), dtype=torch.float16)
+        b = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.copy.default, (a, b))
+
+        # Test 1D tensor copying
+        c = torch.randn(100, dtype=torch.float16)
+        d = torch.randn(100, dtype=torch.float16)
+        self._test_op(aten.copy.default, (c, d))
+
+        # Test 3D tensor copying
+        e = torch.randn((16, 8, 4), dtype=torch.float16)
+        f = torch.randn((16, 8, 4), dtype=torch.float16)
+        self._test_op(aten.copy.default, (e, f))
+
+        # Test with different dtypes
+        g = torch.randn((32, 64), dtype=torch.float32)
+        h = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten.copy.default, (g, h))
+
+        i = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        j = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        self._test_op(aten.copy.default, (i, j))
 
 
 if __name__ == "__main__":
     # unittest.main()
-    TestMLXFunctionMappings().test_view()
+    TestMLXFunctionMappings().test_copy()
 
 
 # def cool_mlx_fn(_0):

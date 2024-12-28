@@ -21,9 +21,17 @@ from proteus.arg_marshalers import (
 
 from proteus.custom_ops import expand
 
+from proteus.custom_lowerings import custom_lowerings_map
+
 aten = torch.ops.aten
 
-_fn_mapping = {
+# implementations of aten ops are in pytorch/aten/src/ATen/native
+# https://github.com/pytorch/pytorch/tree/3054aae493a5347cf8187b5ce611b9a38aace202/aten/src/ATen/native
+
+_aten_mlx_mapping: Dict[
+    Callable,
+    Tuple[Callable, Callable[[List, Dict], Tuple[List[ast.AST], List[ast.keyword]]]],
+] = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
     aten.t.default: (mx.transpose, t_arg_marshaler),
     aten.transpose.int: (mx.swapaxes, transpose_int_arg_marshaler),
@@ -58,8 +66,10 @@ _fn_mapping = {
     aten.view.default: (mx.reshape, passthrough_arg_marshaler),
     # aten.slice.Tensor: (custom_ops.slice, passthrough_arg_marshaler),
     # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
+    # looks like aten.clone creates a whole new tensor with data (mlx does this with modifications,
+    # so using __copy__ which only actaully copies when there is mutation) should preserve semantics and be faster
+    # however, aten.copy copies contents of one tensor into another
     aten.clone.default: (mx.array.__copy__, clone_arg_marshaler),
-    aten.copy.default: (mx.array.__copy__, passthrough_arg_marshaler),
     aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
     # aten.masked_fill.Scalar: (custom_ops.masked_fill, passthrough_arg_marshaler),
     # aten.slice_scatter.default: (custom_ops.slice_scatter, passthrough_arg_marshaler),
@@ -78,22 +88,6 @@ _fn_mapping = {
     aten.mean.default: (mx.mean, passthrough_arg_marshaler),
     aten.einsum.default: (mx.einsum, passthrough_arg_marshaler),
 }
-
-
-def aten_to_mlx(
-    aten_op,
-) -> Tuple[Callable, Callable[[List, Dict], Tuple[List[ast.AST], List[ast.keyword]]]]:
-    """
-    Map an aten op to a tuple of the corresponding MLX function,
-    and a marshaling function taking in the aten args and kwargs to the op
-    (which should just be strings representing SSA values from the fx graph)
-    and returns AST values to be passed as args and kwargs at the AST MLX call sites.
-    """
-
-    if aten_op in _fn_mapping:
-        return _fn_mapping[aten_op]
-    else:
-        raise KeyError(aten_op)
 
 
 def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
@@ -136,7 +130,8 @@ class MLXASTBuilder:
             ast.Import(names=[ast.alias(name="proteus", asname=None)]),
         ]
         # mlx function calls in order of execution
-        self.calls: List[ast.Call] = []
+        # generates lines of python in the AST function body
+        self.calls: List[ast.AST] = []
         self.device = mx.default_device()
         self.ret: ast.Return = None
 
@@ -163,23 +158,29 @@ class MLXASTBuilder:
     def addFunctionCall(self, aten_op, var_name, args: List, kwargs: Dict[str, Any]):
         """Ingest an aten operation and append an assign expression of the matching MLX fn to the AST body."""
 
-        # ast.Load() means you're reading the value of the name, not setting or deleting it
-        mlx_fn, arg_marshaler = aten_to_mlx(aten_op)
+        if aten_op in _aten_mlx_mapping:
+            # ast.Load() means you're reading the value of the name, not setting or deleting it
+            mlx_fn, arg_marshaler = _aten_mlx_mapping[aten_op]
 
-        # Convert args to ast.Name nodes
-        ast_args, ast_kwargs = arg_marshaler(args, kwargs)
+            # Convert args to ast.Name nodes
+            ast_args, ast_kwargs = arg_marshaler(args, kwargs)
 
-        ast_func = fn_to_attr(mlx_fn)
-        ast_assign = ast.Assign(
-            targets=[ast.Name(id=var_name, ctx=ast.Store())],
-            value=ast.Call(
-                func=ast_func,
-                args=ast_args,
-                keywords=ast_kwargs,
-            ),
-        )
-        # print(f"calling fn {getmodule(mlx_fn).__name__}.{mlx_fn.__name__}")
-        self.calls.append(ast_assign)
+            ast_func = fn_to_attr(mlx_fn)
+            ast_assign = ast.Assign(
+                targets=[ast.Name(id=var_name, ctx=ast.Store())],
+                value=ast.Call(
+                    func=ast_func,
+                    args=ast_args,
+                    keywords=ast_kwargs,
+                ),
+            )
+            # print(f"calling fn {getmodule(mlx_fn).__name__}.{mlx_fn.__name__}")
+            self.calls.append(ast_assign)
+        elif custom_lowering := custom_lowerings_map[aten_op]:
+            custom_ast = custom_lowering(var_name, args, kwargs)
+            self.calls.extend(custom_ast)
+        else:
+            raise ValueError(f"aten op {aten_op} not supported")
 
     def addArgument(self, arg_name: str):
         """
