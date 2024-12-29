@@ -587,10 +587,65 @@ class TestMLXFunctionMappings(unittest.TestCase):
             aten.split.Tensor, (x, 2), {"dim": 2}
         )  # Split last dim into size 2 chunks
 
+    def test_layer_norm(self):
+        """Test layer normalization operator"""
+        # Test basic layer norm
+        x = torch.randn((32, 64), dtype=torch.float32)
+        normalized_shape = [64]
+        weight = torch.randn(normalized_shape, dtype=torch.float32)
+        bias = torch.randn(normalized_shape, dtype=torch.float32)
+        self._test_op(
+            aten.layer_norm.default,
+            (x, normalized_shape, weight, bias),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test without bias
+        self._test_op(
+            aten.layer_norm.default,
+            (x, normalized_shape, weight, None),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test without weight and bias
+        self._test_op(
+            aten.layer_norm.default,
+            (x, normalized_shape, None, None),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test with 3D input
+        x = torch.randn((8, 16, 32), dtype=torch.float32)
+        normalized_shape = [32]
+        weight = torch.randn(normalized_shape, dtype=torch.float32)
+        bias = torch.randn(normalized_shape, dtype=torch.float32)
+        self._test_op(
+            aten.layer_norm.default,
+            (x, normalized_shape, weight, bias),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test with multiple normalized dimensions
+        # Unsupported for now but perhaps later if necessary
+        # x = torch.randn((8, 16, 32, 64), dtype=torch.float32)
+        # normalized_shape = [32, 64]
+        # weight = torch.randn(normalized_shape, dtype=torch.float32)
+        # bias = torch.randn(normalized_shape, dtype=torch.float32)
+        # self._test_op(
+        #     aten.layer_norm.default,
+        #     (x, normalized_shape, weight, bias),
+        #     rtol=1e-4,
+        #     atol=1e-4,
+        # )
+
 
 if __name__ == "__main__":
-    # unittest.main()
-    TestMLXFunctionMappings().test_split()
+    unittest.main()
+    # TestMLXFunctionMappings().test_layer_norm()
 
 
 # def cool_mlx_fn(_0):

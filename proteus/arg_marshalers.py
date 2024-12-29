@@ -78,6 +78,28 @@ def passthrough_arg_marshaler(
     return ast_args, ast_kwargs
 
 
+def layernorm_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """
+    Map input args and kwargs for aten.layernorm.default.
+
+    NOTE: pytorch's layer norm normalizes over the last D dimensions,
+    while MLX only normalizes over the last dim,
+    so in the case where more than one dim is passed, we're cooked
+    and will have to implement one ourselves
+    """
+
+    _input, normalized_shape, weight, bias = args
+    eps = kwargs.get("eps", 1e-5)
+
+    if isinstance(normalized_shape, (list, tuple)):
+        # mlx only supports layer norm over one dim
+        assert len(normalized_shape) == 1
+
+    return passthrough_arg_marshaler((_input, weight, bias, eps), {})
+
+
 def t_arg_marshaler(
     args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:

@@ -14,6 +14,7 @@ from proteus.arg_marshalers import (
     clone_arg_marshaler,
     transpose_int_arg_marshaler,
     expand_arg_marshaler,
+    layernorm_arg_marshaler,
     module_strs_to_ast,
 )
 
@@ -90,7 +91,8 @@ _aten_mlx_mapping: Dict[
     ),
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
-    aten.layer_norm.default: (mx.fast.layer_norm, passthrough_arg_marshaler),
+    # crap mlx's
+    aten.layer_norm.default: (mx.fast.layer_norm, layernorm_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
     aten.mean.dim: (mx.mean, passthrough_arg_marshaler),
     aten.mean.default: (mx.mean, passthrough_arg_marshaler),
@@ -112,6 +114,9 @@ def fn_to_manual_module(fn: Callable) -> Union[List[str], None]:
         nn.relu: ["mlx", "nn", "relu"],
         nn.gelu: ["mlx", "nn", "gelu"],
     }.get(fn, None)
+
+
+nn.LayerNorm
 
 
 def fn_to_attr(fn: Callable) -> Union[ast.Name, ast.Attribute]:
