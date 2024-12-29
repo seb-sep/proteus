@@ -41,8 +41,15 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
         compiled_fn = torch.compile(foo, backend=_capture_graph_backend)
         out = compiled_fn(*example_args, **example_kwargs)
-        # note that the end to end function is still correct, it's just the intermediary graph module which does unexpected things
-        assert torch.allclose(out, torch_op(*example_args, **example_kwargs))
+        op_res = torch_op(*example_args, **example_kwargs)
+        # in case the graph returns some iterable of tensors like torch.split() does
+        if isinstance(out, (tuple, List)):
+            assert all(
+                torch.allclose(out_elem, op_elem)
+                for out_elem, op_elem in zip(out, op_res)
+            )
+        else:
+            assert torch.allclose(out, op_res)
         assert isinstance(ret_gm, GraphModule)
         # # strip all unused args out of the graphmodule
         # for node in ret_gm.graph.find_nodes(op="placeholder"):
@@ -51,6 +58,7 @@ class TestMLXFunctionMappings(unittest.TestCase):
         #         ret_gm.graph.erase_node(node)
 
         # ret_gm.recompile()
+        print(ret_gm.graph)
         return ret_gm, ret_example_inputs
 
     def _test_op(
@@ -503,10 +511,86 @@ class TestMLXFunctionMappings(unittest.TestCase):
         j = torch.randint(0, 10, (32, 64), dtype=torch.int32)
         self._test_op(aten.copy.default, (i, j))
 
+    # know what graphs calling this look like
+    # def test_conv2d(self):
+    #     """Test 2D convolution operator"""
+    #     # Test basic 2D convolution with square kernel
+    #     batch_size = 8
+    #     in_channels = 3
+    #     out_channels = 16
+    #     input_height = 32
+    #     input_width = 32
+    #     kernel_size = 3
+
+    #     # Input tensor [batch, channels, height, width]
+    #     x = torch.randn(
+    #         (batch_size, in_channels, input_height, input_width), dtype=torch.float32
+    #     )
+    #     # Weight tensor [out_channels, in_channels, kernel_height, kernel_width]
+    #     w = torch.randn(
+    #         (out_channels, in_channels, kernel_size, kernel_size), dtype=torch.float32
+    #     )
+    #     # Optional bias [out_channels]
+    #     b = torch.randn(out_channels, dtype=torch.float32)
+
+    #     # Test with bias and default stride/padding
+    #     self._test_op(aten.conv2d.default, (x, w, b), rtol=1e-4, atol=1e-4)
+
+    #     # Test without bias
+    #     self._test_op(aten.conv2d.default, (x, w, None), rtol=1e-4, atol=1e-4)
+
+    #     # Test with explicit stride and padding
+    #     self._test_op(
+    #         aten.conv2d.default,
+    #         (x, w, None),
+    #         {"stride": (2, 2), "padding": (1, 1)},
+    #         rtol=1e-4,
+    #         atol=1e-4,
+    #     )
+
+    #     # Test with rectangular kernel
+    #     w_rect = torch.randn((out_channels, in_channels, 3, 5), dtype=torch.float32)
+    #     self._test_op(aten.conv2d.default, (x, w_rect, None), rtol=1e-4, atol=1e-4)
+
+    #     # Test with different input size
+    #     x_large = torch.randn((4, in_channels, 64, 64), dtype=torch.float32)
+    #     self._test_op(aten.conv2d.default, (x_large, w, b), rtol=1e-4, atol=1e-4)
+
+    def test_unsafe_view(self):
+        """Test unsafe view operator"""
+        x = torch.randn((2, 3, 4))
+        self._test_op(aten._unsafe_view.default, (x, (2, 12)))
+        self._test_op(aten._unsafe_view.default, (x, (3, 8)))
+        self._test_op(aten._unsafe_view.default, (x, (-1, 4)))
+
+    def test_split(self):
+        """Test split operator"""
+        # Test basic split
+        torch.split
+        x = torch.randn((10, 4))
+        self._test_op(aten.split.Tensor, (x, 2))  # Split into sections of size 2
+
+        # Test uneven split
+        # TODO: uneven split does not work for now, circle back if this is
+        # necessary for inferencing models
+        # x = torch.randn((5, 3))
+        # self._test_op(aten.split.Tensor, (x, 2))  # Last section will be size 1
+
+        # Test split along different dimension
+        x = torch.randn((6, 6))
+        self._test_op(aten.split.Tensor, (x, 3), {"dim": 1})
+
+        # Test with larger tensor
+        x = torch.randn((8, 8, 8))
+        self._test_op(aten.split.Tensor, (x, 4))  # Split first dim into size 4 chunks
+        self._test_op(
+            aten.split.Tensor, (x, 2), {"dim": 2}
+        )  # Split last dim into size 2 chunks
+
 
 if __name__ == "__main__":
     # unittest.main()
-    TestMLXFunctionMappings().test_copy()
+    TestMLXFunctionMappings().test_split()
 
 
 # def cool_mlx_fn(_0):

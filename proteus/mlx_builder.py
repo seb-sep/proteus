@@ -1,8 +1,6 @@
 from typing import Callable, List, Dict, Any, Tuple, Union
 import operator
 import ast
-from pprint import pprint
-from inspect import getmodule
 
 import torch
 from torch.fx import Graph, Node
@@ -19,7 +17,7 @@ from proteus.arg_marshalers import (
     module_strs_to_ast,
 )
 
-from proteus.custom_ops import expand
+from proteus.custom_ops import expand, custom_split
 
 from proteus.custom_lowerings import custom_lowerings_map
 
@@ -64,24 +62,34 @@ _aten_mlx_mapping: Dict[
     # NOTE: aten view only meant to work on contiguous tensors and is ALWAYS zero-copy,
     # presumably mx.reshape copies in the non-contiguous case
     aten.view.default: (mx.reshape, passthrough_arg_marshaler),
+    # looks like _unsafe_view is just a hack which is equal to view() but is treated differently by autodiff
+    # for the purposes of an inference compiler we can treat it as the same
+    # https://github.com/pytorch/pytorch/blob/e1abbe155ec4fb4fd94281f86282bed22d38c5ae/aten/src/ATen/native/TensorShape.cpp#L4020
+    aten._unsafe_view.default: (mx.reshape, passthrough_arg_marshaler),
     # aten.slice.Tensor: (custom_ops.slice, passthrough_arg_marshaler),
     # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
     # looks like aten.clone creates a whole new tensor with data (mlx does this with modifications,
     # so using __copy__ which only actaully copies when there is mutation) should preserve semantics and be faster
     # however, aten.copy copies contents of one tensor into another
     aten.clone.default: (mx.array.__copy__, clone_arg_marshaler),
-    aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
+    # implement _to_copy later when we have a better idea of what the heck it does
+    # aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
     # aten.masked_fill.Scalar: (custom_ops.masked_fill, passthrough_arg_marshaler),
     # aten.slice_scatter.default: (custom_ops.slice_scatter, passthrough_arg_marshaler),
-    aten.conv2d.default: (mx.conv2d, passthrough_arg_marshaler),
-    aten._unsafe_view.default: (mx.reshape, passthrough_arg_marshaler),
-    aten.split.Tensor: (mx.split, passthrough_arg_marshaler),
+    # TODO: SHOOT conv2d for torch has shapes input (batch, Cin, H, W), weight (Cout, Cin, H, W),
+    # but MLX conv2d has shapes input (batch, H, W, Cin), weight (Cout, H, W, Cin)
+    # I'm not sure if I can naively add a call to swap dimensions into the model graph because
+    # I don't know what kind of tensors I will be given, though the likely bet is that the dimensions
+    # will be in the shape torch expects. In any case, skip this op for now and come back to it when you
+    # aten.conv2d.default: (conv2d_bias, passthrough_arg_marshaler),
+    aten.split.Tensor: (custom_split, passthrough_arg_marshaler),
     # aten.dropout.default: (custom_ops.passthrough, passthrough_arg_marshaler),
     aten.scaled_dot_product_attention.default: (
         mx.fast.scaled_dot_product_attention,
         passthrough_arg_marshaler,
     ),
-    operator.getitem: (mx.array.__getitem__, passthrough_arg_marshaler),
+    # this neeeds to be handled custom to dispatch properly on different types
+    operator.getitem: (operator.getitem, passthrough_arg_marshaler),
     aten.layer_norm.default: (mx.fast.layer_norm, passthrough_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
     aten.mean.dim: (mx.mean, passthrough_arg_marshaler),
@@ -128,6 +136,7 @@ class MLXASTBuilder:
         self.imports = [
             ast.Import(names=[ast.alias(name="mlx", asname=None)]),
             ast.Import(names=[ast.alias(name="proteus", asname=None)]),
+            ast.Import(names=[ast.alias(name="_operator", asname=None)]),
         ]
         # mlx function calls in order of execution
         # generates lines of python in the AST function body

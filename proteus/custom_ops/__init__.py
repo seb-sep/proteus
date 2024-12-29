@@ -8,6 +8,34 @@ def expand(x: mx.array, shape: List[int]) -> mx.array:
     return mx.broadcast_to(x, shape)
 
 
+def custom_split(
+    a: mx.array, split_size_or_sections: Union[int, List[int]], dim: int = 0
+):
+    """
+    Like torch.split() on MLX arrays.
+
+    TODO: if the dimensions of a are sufficiently statically known at compile time
+    this can be inlined in instead of doing runtime arg conversions to what MLX expects
+    """
+
+    if isinstance(split_size_or_sections, int):
+        sections = a.shape[dim] // split_size_or_sections
+        return mx.split(a, sections, dim)
+    indices = tuple(
+        sum(split_size_or_sections[:i]) - 1
+        for i in range(1, len(split_size_or_sections) + 1)
+    )
+    return mx.split(a, indices, dim)
+
+
+# NOTE: whether or not you will have a bias is technically statically known,
+# so whether to use this function or plain mx.conv2d should be knowable aot
+# preventing the runtime check from being necessary
+def conv2d_bias(_input, weight, bias, **kwargs):
+    conv = mx.conv2d(_input, weight, **kwargs)
+    return conv + bias if bias is not None else conv
+
+
 def linear(x: mx.array, w: mx.array, b: Union[mx.array, None]):
     if b is not None:
         out = mx.addmm(b, x, w.T)
