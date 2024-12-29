@@ -8,6 +8,24 @@ def expand(x: mx.array, shape: List[int]) -> mx.array:
     return mx.broadcast_to(x, shape)
 
 
+def custom_sdpa(
+    q: mx.array,
+    k: mx.array,
+    v: mx.array,
+    attn_mask: Union[mx.array, None],
+    is_causal: bool,
+    scale: bool,
+):
+    if attn_mask is not None and attn_mask.dtype == mx.bool_:
+        attn_mask = mx.where(attn_mask, 0, -float("inf"))
+    if is_causal:
+        attn_mask = mx.triu(
+            mx.full((q.shape[-2], k.shape[-2]), -float("inf"), dtype=q.dtype), k=1
+        )
+
+    return mx.fast.scaled_dot_product_attention(q, k, v, scale=scale, mask=attn_mask)
+
+
 def custom_split(
     a: mx.array, split_size_or_sections: Union[int, List[int]], dim: int = 0
 ):

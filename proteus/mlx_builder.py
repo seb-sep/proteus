@@ -15,10 +15,12 @@ from proteus.arg_marshalers import (
     transpose_int_arg_marshaler,
     expand_arg_marshaler,
     layernorm_arg_marshaler,
+    sdpa_arg_marshaler,
+    triangle_arg_marshaler,
     module_strs_to_ast,
 )
 
-from proteus.custom_ops import expand, custom_split
+from proteus.custom_ops import expand, custom_split, custom_sdpa
 
 from proteus.custom_lowerings import custom_lowerings_map
 
@@ -38,8 +40,8 @@ _aten_mlx_mapping: Dict[
     aten.relu.default: (nn.relu, passthrough_arg_marshaler),
     aten.silu.default: (nn.silu, passthrough_arg_marshaler),
     aten.gelu.default: (nn.gelu, passthrough_arg_marshaler),
-    aten.triu.default: (mx.triu, passthrough_arg_marshaler),
-    aten.tril.default: (mx.tril, passthrough_arg_marshaler),
+    aten.triu.default: (mx.triu, triangle_arg_marshaler),
+    aten.tril.default: (mx.tril, triangle_arg_marshaler),
     aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
     aten.div.Tensor: (mx.divide, passthrough_arg_marshaler),
     aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
@@ -85,10 +87,7 @@ _aten_mlx_mapping: Dict[
     # aten.conv2d.default: (conv2d_bias, passthrough_arg_marshaler),
     aten.split.Tensor: (custom_split, passthrough_arg_marshaler),
     # aten.dropout.default: (custom_ops.passthrough, passthrough_arg_marshaler),
-    aten.scaled_dot_product_attention.default: (
-        mx.fast.scaled_dot_product_attention,
-        passthrough_arg_marshaler,
-    ),
+    aten.scaled_dot_product_attention.default: (custom_sdpa, sdpa_arg_marshaler),
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
     # crap mlx's

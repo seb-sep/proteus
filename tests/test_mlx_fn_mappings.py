@@ -183,13 +183,13 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
         # Test upper triangular
         self._test_op(aten.triu.default, (a,))
-        # self._test_op(aten.triu.default, (a,), {"diagonal": 1})
-        # self._test_op(aten.triu.default, (a,), {"diagonal": -1})
+        self._test_op(aten.triu.default, (a,), {"diagonal": 1})
+        self._test_op(aten.triu.default, (a,), {"diagonal": -1})
 
         # Test lower triangular
         self._test_op(aten.tril.default, (a,))
-        # self._test_op(aten.tril.default, (a,), {"diagonal": 1})
-        # self._test_op(aten.tril.default, (a,), {"diagonal": -1})
+        self._test_op(aten.tril.default, (a,), {"diagonal": 1})
+        self._test_op(aten.tril.default, (a,), {"diagonal": -1})
 
     def test_multiply(self):
         """Test multiplication operator"""
@@ -642,16 +642,85 @@ class TestMLXFunctionMappings(unittest.TestCase):
         #     atol=1e-4,
         # )
 
+    def test_scaled_dot_product_attention(self):
+        """Test scaled dot product attention operator"""
+        # Test basic case
+        # batch_size = 2
+        # num_heads = 4
+        # seq_len = 8
+        # head_dim = 16
+
+        batch_size = 1
+        num_heads = 1
+        seq_len = 2
+        head_dim = 2
+
+        query = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+        key = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+        value = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+
+        self._test_op(
+            aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        torch.masked_fill
+
+        # Test with attention mask
+        attn_mask = torch.ones((seq_len, seq_len), dtype=torch.bool).tril()
+        self._test_op(
+            aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            {"attn_mask": attn_mask},
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test different sequence lengths for key/value
+        kv_seq_len = 16
+        key = torch.randn(
+            (batch_size, num_heads, kv_seq_len, head_dim), dtype=torch.float32
+        )
+        value = torch.randn(
+            (batch_size, num_heads, kv_seq_len, head_dim), dtype=torch.float32
+        )
+
+        self._test_op(
+            aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test with custom scale
+        query = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+        key = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+        value = torch.randn(
+            (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
+        )
+        scale = 2.0
+
+        self._test_op(
+            aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            {"scale": scale},
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-    # TestMLXFunctionMappings().test_layer_norm()
-
-
-# def cool_mlx_fn(_0):
-#     t_default = mlx.core.transpose(_0)
-#     return (t_default,)
-
-
-# a = mlx.core.random.normal((4, 4))
-# print(a, cool_mlx_fn(a))
+    # TestMLXFunctionMappings().test_scaled_dot_product_attention()

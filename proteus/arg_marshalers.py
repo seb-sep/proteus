@@ -1,6 +1,6 @@
 import ast
 from typing import Dict, List, Tuple, Union
-from pprint import pprint
+from math import sqrt
 
 from torch.fx import Node, Graph, immutable_collections
 import torch
@@ -98,6 +98,45 @@ def layernorm_arg_marshaler(
         assert len(normalized_shape) == 1
 
     return passthrough_arg_marshaler((_input, weight, bias, eps), {})
+
+
+def sdpa_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """
+    Transform args for aten.scaled_dot_product_attention.default.
+
+    NOTE that torch sdpa can take in a boolean attention mask, while mlx seems to
+    only work with float masks.
+    """
+    q, k, v = args
+    attn_mask = kwargs.get("attn_mask")
+    is_causal = kwargs.get("is_causal", False)
+    dropout_p = kwargs.get("dropout_p", 0)
+
+    assert isinstance(q, Node) and q.type == torch.Tensor
+    q_shape = q.meta.get("example_value", q.meta.get("val")).shape
+    scale = kwargs.get("scale", sqrt(q_shape[-1]) ** -1)
+
+    # torch sdpa takes in a dropout p but mlx does not, so only support no dropout
+    # in future, this could be simply unfused by injecting a dropout later afterwards
+    # (though likely not very efficient)
+    assert dropout_p == 0
+
+    return passthrough_arg_marshaler(
+        (q, k, v), {"scale": scale, "attn_mask": attn_mask, "is_causal": is_causal}
+    )
+
+
+def triangle_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """For aten.{triu, tril}.default"""
+    if len(args) == 1:
+        if "diagonal" in kwargs:
+            args = (args[0], kwargs["diagonal"])
+
+    return passthrough_arg_marshaler(args, {})
 
 
 def t_arg_marshaler(
