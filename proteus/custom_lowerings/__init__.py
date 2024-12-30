@@ -3,7 +3,7 @@ import ast
 
 import torch
 
-from .ast_lowering import copy_to_ast, copy_inplace_to_ast
+from .ast_lowering import copy_to_ast, copy_inplace_to_ast, _to_copy_to_ast
 
 
 aten = torch.ops.aten
@@ -19,6 +19,7 @@ custom_lowerings_map: Dict[
     # if this is a perf bottleneck, I could always implement a copy kernel myself
     # copy creates a new tensor from the second arg, basically skipping the first,
     # copy_ copies the second tensor INTO the data of the first and returns the first
-    aten.copy.default: copy_to_ast,
+    aten.copy.default: copy_to_ast,  # TODO: wait can I actually just make this do teh same as aten.clone.default?
     aten.copy_.default: copy_inplace_to_ast,
+    aten._to_copy.default: _to_copy_to_ast,
 }

@@ -1,9 +1,10 @@
 import ast
 from typing import List, Dict, Any
 
+import torch
 from torch.fx import Node
 
-from proteus.arg_marshalers import module_strs_to_ast
+from proteus.arg_marshalers import module_strs_to_ast, convert_arg_to_ast
 
 # Note that custom AST lowerings take in generic args and kwargs but must still
 # produce a List[AST] and List[keyword]
@@ -67,5 +68,47 @@ def copy_inplace_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[as
         ast.Assign(
             targets=[ast.Name(id=var_name, ctx=ast.Store())],
             value=ast.Name(id=self.name, ctx=ast.Load()),
+        ),
+    )
+
+
+def _to_copy_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
+    """
+    Generate the proper AST for aten._to_copy.default.
+
+    _to_copy handles device, datatype, and layout copying; we only care about datatype since
+    the notion of devices doesn't exist for MLX, so we simply invoke the MLX .astype() method
+    in the case of a passed dtype and a plain copy in any other case
+    """
+
+    assert len(args) == 1
+    self = args[0]
+    assert isinstance(self, Node)
+
+    if dtype := kwargs.get("dtype"):
+        assert isinstance(dtype, torch.dtype)
+        # call .astype() method on self name
+        assign_ast = ast.Call(
+            func=ast.Attribute(
+                value=ast.Name(id=self.name, ctx=ast.Load()),
+                attr="astype",
+                ctx=ast.Load(),
+            ),
+            args=[convert_arg_to_ast(dtype)],
+            keywords=[],
+        )
+    else:
+        # simply copy the tensor w array constructor
+        mx_array_cons = module_strs_to_ast(["mlx", "core", "array"])
+        assign_ast = ast.Call(
+            func=mx_array_cons,
+            args=[ast.Name(id=self.name, ctx=ast.Load())],
+            keywords=[],
+        )
+
+    return (
+        ast.Assign(
+            targets=[ast.Name(id=var_name, ctx=ast.Store())],
+            value=assign_ast,
         ),
     )

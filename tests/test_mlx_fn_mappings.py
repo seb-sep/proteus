@@ -537,6 +537,41 @@ class TestMLXFunctionMappings(unittest.TestCase):
         j_inplace = torch.randint(0, 10, (32, 64), dtype=torch.int32)
         self._test_op(aten.copy_.default, (i_inplace, j_inplace))
 
+    def test_to_copy(self):
+        """Test _to_copy operator"""
+        # Test basic copying without dtype change
+        a = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten._to_copy.default, (a,), {})
+
+        # Test copying with dtype changes between float types
+        b = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten._to_copy.default, (b,), {"dtype": torch.float16})
+
+        c = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten._to_copy.default, (c,), {"dtype": torch.float32})
+
+        # Test float to int conversion
+        d = torch.randn((16, 8, 4), dtype=torch.float32)
+        self._test_op(aten._to_copy.default, (d,), {"dtype": torch.int32})
+
+        e = (
+            torch.randn(100, dtype=torch.float16) * 100
+        )  # Scale up for integer conversion
+        self._test_op(aten._to_copy.default, (e,), {"dtype": torch.int64})
+
+        # Test int to float conversion
+        f = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        self._test_op(aten._to_copy.default, (f,), {"dtype": torch.float32})
+
+        g = torch.randint(-100, 100, (32, 64), dtype=torch.int64)
+        self._test_op(aten._to_copy.default, (g,), {"dtype": torch.float16})
+
+        # Test with other kwargs that should be ignored
+        h = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(
+            aten._to_copy.default, (h,), {"device": "cpu", "layout": torch.strided}
+        )
+
     # know what graphs calling this look like
     # def test_conv2d(self):
     #     """Test 2D convolution operator"""
@@ -878,4 +913,4 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
 if __name__ == "__main__":
     # unittest.main()
-    TestMLXFunctionMappings().test_copy()
+    TestMLXFunctionMappings().test_to_copy()
