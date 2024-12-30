@@ -513,6 +513,30 @@ class TestMLXFunctionMappings(unittest.TestCase):
         j = torch.randint(0, 10, (32, 64), dtype=torch.int32)
         self._test_op(aten.copy.default, (i, j))
 
+        # Test in-place copy operations
+        a_inplace = torch.randn((32, 64), dtype=torch.float16)
+        b_inplace = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.copy_.default, (a_inplace, b_inplace))
+
+        # Test 1D tensor in-place copying
+        c_inplace = torch.randn(100, dtype=torch.float16)
+        d_inplace = torch.randn(100, dtype=torch.float16)
+        self._test_op(aten.copy_.default, (c_inplace, d_inplace))
+
+        # Test 3D tensor in-place copying
+        e_inplace = torch.randn((16, 8, 4), dtype=torch.float16)
+        f_inplace = torch.randn((16, 8, 4), dtype=torch.float16)
+        self._test_op(aten.copy_.default, (e_inplace, f_inplace))
+
+        # Test with different dtypes in-place
+        g_inplace = torch.randn((32, 64), dtype=torch.float32)
+        h_inplace = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten.copy_.default, (g_inplace, h_inplace))
+
+        i_inplace = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        j_inplace = torch.randint(0, 10, (32, 64), dtype=torch.int32)
+        self._test_op(aten.copy_.default, (i_inplace, j_inplace))
+
     # know what graphs calling this look like
     # def test_conv2d(self):
     #     """Test 2D convolution operator"""
@@ -854,4 +878,4 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
 if __name__ == "__main__":
     # unittest.main()
-    TestMLXFunctionMappings().test_masked_fill()
+    TestMLXFunctionMappings().test_copy()
