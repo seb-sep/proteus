@@ -17,6 +17,8 @@ from proteus.arg_marshalers import (
     layernorm_arg_marshaler,
     sdpa_arg_marshaler,
     triangle_arg_marshaler,
+    mean_arg_marshaler,
+    einsum_arg_marshaler,
     module_strs_to_ast,
 )
 
@@ -90,12 +92,11 @@ _aten_mlx_mapping: Dict[
     aten.scaled_dot_product_attention.default: (custom_sdpa, sdpa_arg_marshaler),
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
-    # crap mlx's
     aten.layer_norm.default: (mx.fast.layer_norm, layernorm_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
-    aten.mean.dim: (mx.mean, passthrough_arg_marshaler),
+    aten.mean.dim: (mx.mean, mean_arg_marshaler),
     aten.mean.default: (mx.mean, passthrough_arg_marshaler),
-    aten.einsum.default: (mx.einsum, passthrough_arg_marshaler),
+    aten.einsum.default: (mx.einsum, einsum_arg_marshaler),
 }
 
 

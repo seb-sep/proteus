@@ -56,6 +56,23 @@ def convert_arg_to_ast(arg) -> ast.AST:
         )
 
 
+def mean_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs for aten.mean.dim."""
+
+    keepdim = kwargs.get("keepdim", False)
+    return passthrough_arg_marshaler(args, {"keepdims": keepdim})
+
+
+def einsum_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs for aten.einsum.default."""
+    equation, tensors = args
+    return passthrough_arg_marshaler((equation, *tensors), kwargs)
+
+
 def passthrough_arg_marshaler(
     args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:

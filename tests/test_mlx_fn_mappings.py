@@ -4,6 +4,7 @@ from typing import Callable, Any, Tuple, Dict, Iterable, List
 import torch
 from torch.fx import GraphModule, Graph, Node
 import mlx.core as mx
+from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
 from proteus.mlx_builder import MLXASTBuilder
@@ -116,8 +117,9 @@ class TestMLXFunctionMappings(unittest.TestCase):
         # Compare results
         for torch_result, mlx_result in zip(torch_results, mlx_results):
             if torch_result.dtype.is_floating_point:
+                close = torch.allclose(mlx_result, torch_result, rtol=rtol, atol=atol)
                 self.assertTrue(
-                    torch.allclose(mlx_result, torch_result, rtol=rtol, atol=atol),
+                    close,
                     f"Output mismatch for operator {torch_op.__name__}:\ntorch output {torch_result}\n\nmlx output {mlx_result}\ndifference: {torch_result - mlx_result}, biggest diff {torch.abs(torch_result - mlx_result).max()}",
                 )
             else:
@@ -720,7 +722,92 @@ class TestMLXFunctionMappings(unittest.TestCase):
             atol=1e-4,
         )
 
+    def test_pow(self):
+        """Test power operator with scalar exponents"""
+        # Test with various shapes and exponents
+        a = torch.randn((32, 64), dtype=torch.float16)
+
+        # weirdly specific powers are occasionally just wrong for fp16;
+        # relax the tolerances here or test in fp32/bf16
+        # Test squaring
+        self._test_op(aten.pow.Tensor_Scalar, (a, 2), atol=1e-3, rtol=1e-3)
+
+        # Test cubing
+        self._test_op(aten.pow.Tensor_Scalar, (a.float(), 3), atol=1e-3, rtol=1e-3)
+
+        # Test fractional power (obviously only works on positive numbers)
+        self._test_op(aten.pow.Tensor_Scalar, (a.abs(), 0.5))
+
+        # Test negative power
+        self._test_op(aten.pow.Tensor_Scalar, (a.float(), -1))
+
+        # Test power of 1 (identity)
+        self._test_op(aten.pow.Tensor_Scalar, (a, 1))
+
+        # Test power of 0 (should all be 1s)
+        self._test_op(aten.pow.Tensor_Scalar, (a, 0))
+
+    def test_mean(self):
+        """Test mean reduction operator"""
+
+        # correct enough on float16?
+        a = torch.randn((32, 64, 16), dtype=torch.float32)
+
+        # Test mean over all dimensions
+        self._test_op(aten.mean.default, (a,))
+
+        # Test mean over specific dimensions
+        # Single dimension
+        self._test_op(aten.mean.dim, (a, (0,)))
+        self._test_op(aten.mean.dim, (a, (1,)))
+        self._test_op(aten.mean.dim, (a, (2,)))
+
+        # Multiple dimensions
+        self._test_op(aten.mean.dim, (a, (0, 1)))
+        self._test_op(aten.mean.dim, (a, (1, 2)))
+        self._test_op(aten.mean.dim, (a, (0, 2)))
+
+        # Test with keepdim=True
+        self._test_op(aten.mean.dim, (a, (1,)), {"keepdim": True})
+        self._test_op(aten.mean.dim, (a, (0, 2)), {"keepdim": True})
+
+    def test_einsum(self):
+        """Test einsum operator"""
+        # Test matrix multiplication
+        # don't worry, all tests are still using real tensors! issue running aten einsum
+        # on faketensors must be for creating the fx graph
+        a = torch.randn((32, 16), dtype=torch.float16)
+        b = torch.randn((16, 32), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("ik,kj->ij", (a, b)), rtol=1e-3)
+
+        # Test batch matrix multiplication
+        a = torch.randn((8, 32, 16), dtype=torch.float16)
+        b = torch.randn((8, 16, 32), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("bik,bkj->bij", (a, b)), rtol=1e-3)
+
+        # Test inner product
+        a = torch.randn((32,), dtype=torch.float16)
+        b = torch.randn((32,), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("i,i->", (a, b)), rtol=1e-3)
+
+        # Test outer product
+        a = torch.randn((32,), dtype=torch.float16)
+        b = torch.randn((16,), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("i,j->ij", (a, b)), rtol=1e-3)
+
+        # Test trace
+        a = torch.randn((32, 32), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("ii->", (a,)), rtol=1e-3)
+
+        # Test diagonal
+        a = torch.randn((32, 32), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("ii->i", (a,)), rtol=1e-3)
+
+        # Test transpose
+        a = torch.randn((32, 16), dtype=torch.float16)
+        self._test_op(aten.einsum.default, ("ij->ji", (a,)), rtol=1e-3)
+
 
 if __name__ == "__main__":
     unittest.main()
-    # TestMLXFunctionMappings().test_scaled_dot_product_attention()
+    # TestMLXFunctionMappings().test_einsum()
