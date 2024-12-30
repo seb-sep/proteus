@@ -29,26 +29,24 @@ def convert_arg_to_ast(arg) -> ast.AST:
     elif isinstance(arg, torch.dtype):
         mlx_dtype = torch_dtype_map[arg]
         return module_strs_to_ast(str(mlx_dtype).split("."))
-    # elif isinstance(arg, torch.device):
-    #     return ast.Attribute(
-    #         value=ast.Name(id="mx", ctx=ast.Load()), attr="gpu", ctx=ast.Load()
-    #     )
+    # for now, force devices to be gpu (after all, we don't know why some ops might have been)
+    # on cpu for macos in the first place, probably crap about unsupported ops on mac gpu
+    elif isinstance(arg, torch.device):
+        return ast.Attribute(
+            value=ast.Name(id="mx", ctx=ast.Load()), attr="gpu", ctx=ast.Load()
+        )
+    elif isinstance(arg, (immutable_collections.immutable_list, tuple)):
+        return (ast.Tuple(elts=[convert_arg_to_ast(x) for x in arg], ctx=ast.Load()),)
     elif isinstance(
         arg,
         (
-            immutable_collections.immutable_list,
-            tuple,
             str,
             int,
             float,
             type(None),
         ),
     ):
-        parsed = ast.parse(repr(arg))
-        if isinstance(parsed.body[0], ast.Expr):
-            return parsed.body[0].value
-        else:
-            raise ValueError(f"Failed to parse fx value {parsed} of type {type(arg)}")
+        return ast.Constant(value=arg)
     else:
         print(f"Unexpected arg: {arg}")
         raise ValueError(
@@ -204,7 +202,7 @@ def expand_arg_marshaler(
 
     assert len(kwargs) == 0
     tensor, sizes = args
-    assert tensor.type == torch.Tensor and isinstance(sizes, tuple)
+    assert isinstance(sizes, (tuple, list))
     return passthrough_arg_marshaler(args, {})
 
 

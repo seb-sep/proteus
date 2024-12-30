@@ -22,7 +22,13 @@ from proteus.arg_marshalers import (
     module_strs_to_ast,
 )
 
-from proteus.custom_ops import expand, custom_split, custom_sdpa
+from proteus.custom_ops import (
+    expand,
+    custom_split,
+    custom_sdpa,
+    slice,
+    masked_fill_scalar,
+)
 
 from proteus.custom_lowerings import custom_lowerings_map
 
@@ -45,6 +51,8 @@ _aten_mlx_mapping: Dict[
     aten.triu.default: (mx.triu, triangle_arg_marshaler),
     aten.tril.default: (mx.tril, triangle_arg_marshaler),
     aten.mul.Tensor: (mx.multiply, passthrough_arg_marshaler),
+    # mul_ is an inplace variant of mul, make the same for now
+    aten.mul_.Tensor: (mx.multiply, passthrough_arg_marshaler),
     aten.div.Tensor: (mx.divide, passthrough_arg_marshaler),
     aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
     aten.exp.default: (mx.exp, passthrough_arg_marshaler),
@@ -71,7 +79,7 @@ _aten_mlx_mapping: Dict[
     # for the purposes of an inference compiler we can treat it as the same
     # https://github.com/pytorch/pytorch/blob/e1abbe155ec4fb4fd94281f86282bed22d38c5ae/aten/src/ATen/native/TensorShape.cpp#L4020
     aten._unsafe_view.default: (mx.reshape, passthrough_arg_marshaler),
-    # aten.slice.Tensor: (custom_ops.slice, passthrough_arg_marshaler),
+    aten.slice.Tensor: (slice, passthrough_arg_marshaler),
     # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
     # looks like aten.clone creates a whole new tensor with data (mlx does this with modifications,
     # so using __copy__ which only actaully copies when there is mutation) should preserve semantics and be faster
@@ -79,7 +87,7 @@ _aten_mlx_mapping: Dict[
     aten.clone.default: (mx.array.__copy__, clone_arg_marshaler),
     # implement _to_copy later when we have a better idea of what the heck it does
     # aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
-    # aten.masked_fill.Scalar: (custom_ops.masked_fill, passthrough_arg_marshaler),
+    aten.masked_fill.Scalar: (masked_fill_scalar, passthrough_arg_marshaler),
     # aten.slice_scatter.default: (custom_ops.slice_scatter, passthrough_arg_marshaler),
     # TODO: SHOOT conv2d for torch has shapes input (batch, Cin, H, W), weight (Cout, Cin, H, W),
     # but MLX conv2d has shapes input (batch, H, W, Cin), weight (Cout, H, W, Cin)

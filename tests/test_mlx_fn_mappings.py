@@ -807,7 +807,51 @@ class TestMLXFunctionMappings(unittest.TestCase):
         a = torch.randn((32, 16), dtype=torch.float16)
         self._test_op(aten.einsum.default, ("ij->ji", (a,)), rtol=1e-3)
 
+    def test_slice(self):
+        """Test slice operator"""
+        # Test basic slicing
+        a = torch.randn((32, 64, 16), dtype=torch.float32)
+
+        # Test slicing along different dimensions
+        self._test_op(aten.slice.Tensor, (a, 0, 5, 15))  # Slice dim 0 from 5 to 15
+        self._test_op(aten.slice.Tensor, (a, 1, 10, 30))  # Slice dim 1 from 10 to 30
+        self._test_op(aten.slice.Tensor, (a, 2, 0, 8))  # Slice dim 2 from 0 to 8
+
+        # Test with step size
+        self._test_op(aten.slice.Tensor, (a, 0, 0, 20, 2))  # Slice with step=2
+
+        # Test with negative indices
+        self._test_op(aten.slice.Tensor, (a, 1, -10, -2))  # Slice with negative indices
+
+        # Test with None as end index (should slice to end)
+        self._test_op(aten.slice.Tensor, (a, 0, 5, None))
+
+    def test_masked_fill(self):
+        """Test masked_fill operator with scalar values"""
+        # Test basic masked fill
+        a = torch.randn((32, 64), dtype=torch.float32)
+        mask = torch.zeros((32, 64), dtype=torch.bool)
+        mask[::2] = True
+        self._test_op(aten.masked_fill.Scalar, (a, mask, 0.0))
+
+        # Test with different scalar values
+        self._test_op(aten.masked_fill.Scalar, (a, mask, 1.0))
+        self._test_op(aten.masked_fill.Scalar, (a, mask, -1.0))
+        self._test_op(aten.masked_fill.Scalar, (a, mask, float("inf")))
+
+        # Test with different shaped tensors
+        b = torch.randn((16, 8, 4), dtype=torch.float32)
+        mask_3d = torch.zeros((16, 8, 4), dtype=torch.bool)
+        mask_3d[:, ::2] = True
+        self._test_op(aten.masked_fill.Scalar, (b, mask_3d, 0.0))
+
+        # Test with all True/False masks
+        all_true = torch.ones_like(a, dtype=torch.bool)
+        all_false = torch.zeros_like(a, dtype=torch.bool)
+        self._test_op(aten.masked_fill.Scalar, (a, all_true, 42.0))
+        self._test_op(aten.masked_fill.Scalar, (a, all_false, 42.0))
+
 
 if __name__ == "__main__":
-    unittest.main()
-    # TestMLXFunctionMappings().test_einsum()
+    # unittest.main()
+    TestMLXFunctionMappings().test_masked_fill()
