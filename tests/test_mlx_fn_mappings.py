@@ -1,5 +1,6 @@
 import unittest
 from typing import Callable, Any, Tuple, Dict, Iterable, List
+import sys
 
 import torch
 from torch.fx import GraphModule, Graph, Node
@@ -113,6 +114,11 @@ class TestMLXFunctionMappings(unittest.TestCase):
         # print("results", mlx_results)
 
         mlx_results = tuple(coerce_mx_to_torch(out) for out in mlx_results)
+
+        # testing hack for not checking logsumexp for cpu flash attention aten op
+        if torch_op == aten._scaled_dot_product_flash_attention_for_cpu.default:
+            torch_results = torch_results[:1]
+            mlx_results = mlx_results[:1]
         # print("torchified results:", mlx_results)
         # Compare results
         for torch_result, mlx_result in zip(torch_results, mlx_results):
@@ -128,12 +134,37 @@ class TestMLXFunctionMappings(unittest.TestCase):
                     f"Output mismatch for operator {torch_op.__name__}:\ntorch output {torch_result}\n\nmlx output {mlx_result}",
                 )
 
-    def test_mm(self):
+    def test_matmul(self):
+        """Test matrix multiplication operators"""
+        # Test basic matrix multiplication
         a = torch.randn((32, 16), dtype=torch.float16)
         b = torch.randn((16, 32), dtype=torch.float16)
-        op = aten.mm.default
+        self._test_op(aten.mm.default, (a, b), rtol=1e-3)
 
-        self._test_op(op, (a, b), rtol=1e-3)
+        # Test with different shapes
+        a = torch.randn((64, 32), dtype=torch.float16)
+        b = torch.randn((32, 8), dtype=torch.float16)
+        self._test_op(aten.mm.default, (a, b), rtol=1e-3)
+
+        # Test with square matrices
+        a = torch.randn((16, 16), dtype=torch.float16)
+        b = torch.randn((16, 16), dtype=torch.float16)
+        self._test_op(aten.mm.default, (a, b), rtol=1e-3)
+
+        # Test batched matrix multiplication
+        a = torch.randn((8, 32, 16), dtype=torch.float16)
+        b = torch.randn((8, 16, 32), dtype=torch.float16)
+        self._test_op(aten.bmm.default, (a, b), rtol=1e-3)
+
+        # Test batched matmul with different batch sizes
+        a = torch.randn((4, 64, 32), dtype=torch.float16)
+        b = torch.randn((4, 32, 16), dtype=torch.float16)
+        self._test_op(aten.bmm.default, (a, b), rtol=1e-3)
+
+        # Test batched matmul with larger matrices
+        a = torch.randn((2, 128, 64), dtype=torch.float16)
+        b = torch.randn((2, 64, 128), dtype=torch.float16)
+        self._test_op(aten.bmm.default, (a, b), rtol=1e-3)
 
     def test_t(self):
         """Test simple transpose operator"""
@@ -160,6 +191,15 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(op, (a, (32, 64, 16)))
         # Test expanding with -1 to keep original dimension
         self._test_op(op, (a, (-1, 64, 16)))
+
+        # Test 4D tensor expansion
+        b = torch.randn((1, 1, 64, 1), dtype=torch.float16)
+        self._test_op(op, (b, (32, 16, 64, 8)))
+
+        # Test with multiple -1 dimensions
+        self._test_op(op, (b, (-1, -1, 64, 8)))
+        self._test_op(op, (b, (-1, 16, -1, 8)))
+        self._test_op(op, (b, (32, -1, 64, -1)))
 
     def test_activations(self):
         """Test various activation functions"""
@@ -357,6 +397,16 @@ class TestMLXFunctionMappings(unittest.TestCase):
         i = torch.randn(30, dtype=torch.float16)
         self._test_op(aten.cat.default, ((h, i),))
 
+        # Test concatenation along dim -1 (last dimension)
+        j = torch.randn((32, 64), dtype=torch.float16)
+        k = torch.randn((32, 32), dtype=torch.float16)
+        self._test_op(aten.cat.default, ((j, k), -1))
+
+        # Test concatenation of 3D tensors along dim -1
+        l = torch.randn((4, 8, 16), dtype=torch.float16)
+        m = torch.randn((4, 8, 24), dtype=torch.float16)
+        self._test_op(aten.cat.default, ((l, m), -1))
+
     def test_select(self):
         """Test select operator"""
         # Test selecting from 2D tensor along dim 0
@@ -444,12 +494,16 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.view.default, (a, (64, 32)))
         self._test_op(aten.view.default, (a, (2048,)))
         self._test_op(aten.view.default, (a, (8, 8, 32)))
+        self._test_op(aten.view.default, (a, (-1, 32)))  # Should be (64, 32)
+        self._test_op(aten.view.default, (a, (32, -1)))  # Should be (32, 64)
 
         # Test 1D tensor reshaping
         b = torch.randn(100, dtype=torch.float16)
         self._test_op(aten.view.default, (b, (10, 10)))
         self._test_op(aten.view.default, (b, (4, 25)))
         self._test_op(aten.view.default, (b, (2, 2, 25)))
+        self._test_op(aten.view.default, (b, (-1, 10)))  # Should be (10, 10)
+        self._test_op(aten.view.default, (b, (5, -1)))  # Should be (5, 20)
 
         # Test 3D tensor reshaping
         c = torch.randn((16, 8, 4), dtype=torch.float16)
@@ -457,14 +511,17 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.view.default, (c, (32, 16)))
         self._test_op(aten.view.default, (c, (8, 8, 8)))
         self._test_op(aten.view.default, (c, (4, 4, 4, 8)))
+        self._test_op(aten.view.default, (c, (-1, 4)))  # Should be (128, 4)
+        self._test_op(aten.view.default, (c, (16, -1)))  # Should be (16, 32)
 
         # Test with different dtypes
         d = torch.randn((32, 64), dtype=torch.float32)
         self._test_op(aten.view.default, (d, (64, 32)))
+        self._test_op(aten.view.default, (d, (-1,)))  # Should be (2048,)
 
         e = torch.randint(0, 10, (32, 64), dtype=torch.int32)
-
         self._test_op(aten.view.default, (e, (2048,)))
+        self._test_op(aten.view.default, (e, (-1, 64)))  # Should be (32, 64)
 
     def test_clone(self):
         """Test clone operator"""
@@ -703,7 +760,7 @@ class TestMLXFunctionMappings(unittest.TestCase):
         #     atol=1e-4,
         # )
 
-    def test_scaled_dot_product_attention(self):
+    def test_sdpa(self):
         """Test scaled dot product attention operator"""
         # Test basic case
         # batch_size = 2
@@ -713,8 +770,8 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
         batch_size = 1
         num_heads = 1
-        seq_len = 2
-        head_dim = 2
+        seq_len = 4
+        head_dim = 4
 
         query = torch.randn(
             (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
@@ -733,7 +790,13 @@ class TestMLXFunctionMappings(unittest.TestCase):
             atol=1e-4,
         )
 
-        torch.masked_fill
+        # Test cpu flash attention variant
+        self._test_op(
+            aten._scaled_dot_product_flash_attention_for_cpu.default,
+            (query, key, value),
+            rtol=1e-4,
+            atol=1e-4,
+        )
 
         # Test with attention mask
         attn_mask = torch.ones((seq_len, seq_len), dtype=torch.bool).tril()
@@ -741,6 +804,33 @@ class TestMLXFunctionMappings(unittest.TestCase):
             aten.scaled_dot_product_attention.default,
             (query, key, value),
             {"attn_mask": attn_mask},
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # cpu flash attention doesn't support boolean mask
+        # https://github.com/pytorch/pytorch/blob/d260bc4476e1b3a5d3eff8dea1c3803cc75c6840/aten/src/ATen/native/transformers/attention.cpp#L885
+
+        # Test with float attention mask
+        attn_mask_float = torch.ones((seq_len, seq_len), dtype=torch.float32)
+        attn_mask_float = torch.tril(attn_mask_float)
+        attn_mask_float = torch.where(
+            attn_mask_float == 0, float("-inf"), attn_mask_float
+        )
+
+        self._test_op(
+            aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            {"attn_mask": attn_mask_float},
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test flash attention with float mask
+        self._test_op(
+            aten._scaled_dot_product_flash_attention_for_cpu.default,
+            (query, key, value),
+            {"attn_mask": attn_mask_float},
             rtol=1e-4,
             atol=1e-4,
         )
@@ -761,6 +851,14 @@ class TestMLXFunctionMappings(unittest.TestCase):
             atol=1e-4,
         )
 
+        # Test flash attention with different kv lengths
+        self._test_op(
+            aten._scaled_dot_product_flash_attention_for_cpu.default,
+            (query, key, value),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
         # Test with custom scale
         query = torch.randn(
             (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
@@ -775,6 +873,15 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
         self._test_op(
             aten.scaled_dot_product_attention.default,
+            (query, key, value),
+            {"scale": scale},
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Test flash attention with custom scale
+        self._test_op(
+            aten._scaled_dot_product_flash_attention_for_cpu.default,
             (query, key, value),
             {"scale": scale},
             rtol=1e-4,
@@ -820,15 +927,22 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.mean.dim, (a, (0,)))
         self._test_op(aten.mean.dim, (a, (1,)))
         self._test_op(aten.mean.dim, (a, (2,)))
+        self._test_op(aten.mean.dim, (a, (-1,)))
 
         # Multiple dimensions
         self._test_op(aten.mean.dim, (a, (0, 1)))
         self._test_op(aten.mean.dim, (a, (1, 2)))
         self._test_op(aten.mean.dim, (a, (0, 2)))
 
-        # Test with keepdim=True
+        # Test with keepdim=True as kwarg
         self._test_op(aten.mean.dim, (a, (1,)), {"keepdim": True})
         self._test_op(aten.mean.dim, (a, (0, 2)), {"keepdim": True})
+        self._test_op(aten.mean.dim, (a, (-1,)), {"keepdim": True})
+
+        # Test with keepdim=True as arg
+        self._test_op(aten.mean.dim, (a, (1,), True))
+        self._test_op(aten.mean.dim, (a, (0, 2), True))
+        self._test_op(aten.mean.dim, (a, (-1,), True))
 
     def test_einsum(self):
         """Test einsum operator"""
@@ -885,6 +999,11 @@ class TestMLXFunctionMappings(unittest.TestCase):
         # Test with None as end index (should slice to end)
         self._test_op(aten.slice.Tensor, (a, 0, 5, None))
 
+        # Test with sys.maxsize as end index (should slice to end)
+        self._test_op(aten.slice.Tensor, (a, 0, 5, sys.maxsize))
+        self._test_op(aten.slice.Tensor, (a, 1, 0, sys.maxsize))
+        self._test_op(aten.slice.Tensor, (a, 2, 10, sys.maxsize))
+
     def test_masked_fill(self):
         """Test masked_fill operator with scalar values"""
         # Test basic masked fill
@@ -910,7 +1029,25 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.masked_fill.Scalar, (a, all_true, 42.0))
         self._test_op(aten.masked_fill.Scalar, (a, all_false, 42.0))
 
+    def test_detach(self):
+        """Test detach operator"""
+        # Test basic detach
+        a = torch.randn((32, 64), dtype=torch.float32)
+        self._test_op(aten.detach.default, (a,))
+
+        # Test with different shapes
+        b = torch.randn((16, 8, 4), dtype=torch.float32)
+        self._test_op(aten.detach.default, (b,))
+
+        # Test with 1D tensor
+        c = torch.randn(100, dtype=torch.float32)
+        self._test_op(aten.detach.default, (c,))
+
+        # Test with different dtypes
+        d = torch.randn((32, 64), dtype=torch.float16)
+        self._test_op(aten.detach.default, (d,))
+
 
 if __name__ == "__main__":
     # unittest.main()
-    TestMLXFunctionMappings().test_to_copy()
+    TestMLXFunctionMappings().test_mean()

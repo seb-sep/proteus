@@ -3,7 +3,12 @@ import ast
 
 import torch
 
-from .ast_lowering import copy_to_ast, copy_inplace_to_ast, _to_copy_to_ast
+from .ast_lowering import (
+    copy_to_ast,
+    copy_inplace_to_ast,
+    _to_copy_to_ast,
+    slice_to_ast,
+)
 
 
 aten = torch.ops.aten
@@ -22,4 +27,5 @@ custom_lowerings_map: Dict[
     aten.copy.default: copy_to_ast,  # TODO: wait can I actually just make this do teh same as aten.clone.default?
     aten.copy_.default: copy_inplace_to_ast,
     aten._to_copy.default: _to_copy_to_ast,
+    aten.slice.Tensor: slice_to_ast,
 }

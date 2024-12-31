@@ -1,14 +1,11 @@
 from typing import List, Dict, Union
-from pprint import pprint
-import time
+import logging
 
 import torch.nn as nn
 import torch.fx as fx
 import torch
-from functorch.compile import aot_function, aot_module_simplified, aot_module
-from functorch.experimental.control_flow import cond
+from functorch.compile import aot_module_simplified
 import torch.utils._pytree as pytree
-import torch._dynamo as dynamo
 from torch.fx.experimental.proxy_tensor import make_fx
 
 import mlx.core as mx
@@ -58,18 +55,9 @@ class MLXCompiledModule:
 
     def __call__(self, args):
         # if you've already compiled to an mlx fn, then you need to pass the input tensors to MLX as mlx arrays
-        # return self.compiled_fn(
-        #     self.named_params, self.named_buffers, args
-        # )  # , **kwargs
         if self.mlx_mode:
-            # args = tuple(coerce_torch_to_mx(tensor) for tensor in args)
-            # kwargs = {k: coerce_torch_to_mx(v) for k, v in kwargs.items()}
-            print(f"coerced args to mlx, about to call compiled fn for real")
-            # print(type(self.compiled_fn))
             out = self.compiled_fn(self.named_params, self.named_buffers, args)
-            print(out)
             return out
-            # return self.compiled_fn(*args)
         else:
             self.mlx_update(args)
             return self(
@@ -82,31 +70,13 @@ class MLXCompiledModule:
         for inference with the MLX function.
         """
         # prompt compilation on sample inputs
-        # print(args, kwargs)
-        print("invoking fn on pytorch args to compile: ")
         params_and_buffers = list(self.named_params.values()) + list(
             self.named_buffers.values()
         )
         a = self.compiled_fn(self.named_params, self.named_buffers, args)  # , **kwargs
         b = self.compiled_fn(self.named_params, self.named_buffers, args)  # , **kwargs
-        # print(self.compiled_fn)
-        # target=torch.ops.higher_order.wrap_with_set_grad_enabled]
-        # _ = self.compiled_fn(self.named_params, self.named_buffers, *args, **kwargs)
-        # print("after compilation: ")
-        # print(self.compiled_fn)
 
-        # After the pytorch tensors were used for compilation, convert them
-        # to MLX arrays for use in the final fn
-        # print("coercing params to mlx")
-        # self.named_params = tuple(
-        #     coerce_torch_to_mx(v) for v in self.named_params.values()
-        # )
-        # self.named_buffers = tuple(
-        #     coerce_torch_to_mx(v) for v in self.named_buffers.values()
-        # )
         self.mlx_mode = True
-        # print("went into mlx mode")
-        # _coerce_args_to_mlx.disable_coercion()
 
 
 def params_to_mlx(mod: nn.Module) -> List[mx.array]:
@@ -132,7 +102,6 @@ first_compile = False
 
 
 def to_aten_compiler(gm: fx.GraphModule, sample_inputs):
-    print("to aten compiler")
     fn = aot_module_simplified(gm, sample_inputs, mlx_compiler)
     return fn
 
@@ -155,7 +124,8 @@ def mlx_compiler(
         builder.ingest_graph(aten_graph.graph)
 
         # TODO: when to compile vs not? could autotune lmao
-        mlx_fn = mx.compile(builder.export())
+        # mlx_fn = mx.compile(builder.export())
+        mlx_fn = builder.export()
 
         # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
         # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?

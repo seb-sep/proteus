@@ -79,7 +79,7 @@ def slice(
         end: Ending index (exclusive)
         step: Step size (default: 1)
     """
-    indices = mx.arange(start, end, step)
+    indices = mx.arange(start if start is not None else 0, end, step)
     return mx.take(x, indices, axis=dim)
 
 

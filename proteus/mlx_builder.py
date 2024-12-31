@@ -1,6 +1,8 @@
 from typing import Callable, List, Dict, Any, Tuple, Union
 import operator
 import ast
+import logging
+import os
 
 import torch
 from torch.fx import Graph, Node
@@ -19,6 +21,9 @@ from proteus.arg_marshalers import (
     triangle_arg_marshaler,
     mean_arg_marshaler,
     einsum_arg_marshaler,
+    arange_arg_marshaler,
+    full_arg_marshaler,
+    slice_arg_marshaler,
     module_strs_to_ast,
 )
 
@@ -33,6 +38,7 @@ from proteus.custom_ops import (
 from proteus.custom_lowerings import custom_lowerings_map
 
 aten = torch.ops.aten
+logger = logging.getLogger(__file__)
 
 # implementations of aten ops are in pytorch/aten/src/ATen/native
 # https://github.com/pytorch/pytorch/tree/3054aae493a5347cf8187b5ce611b9a38aace202/aten/src/ATen/native
@@ -42,6 +48,7 @@ _aten_mlx_mapping: Dict[
     Tuple[Callable, Callable[[List, Dict], Tuple[List[ast.AST], List[ast.keyword]]]],
 ] = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
+    aten.bmm.default: (mx.matmul, passthrough_arg_marshaler),
     aten.t.default: (mx.transpose, t_arg_marshaler),
     aten.transpose.int: (mx.swapaxes, transpose_int_arg_marshaler),
     aten.expand.default: (expand, expand_arg_marshaler),
@@ -68,10 +75,10 @@ _aten_mlx_mapping: Dict[
     # aten.linear.default: (custom_ops.linear, passthrough_arg_marshaler),
     # is it ok to have multiple aten ops map to the same mlx fn like this?
     # NOTE: remember that you ran into issues with what to do with device kwarg for arange
-    aten.arange.start: (mx.arange, passthrough_arg_marshaler),
-    aten.arange.default: (mx.arange, passthrough_arg_marshaler),
+    aten.arange.start: (mx.arange, arange_arg_marshaler),
+    aten.arange.default: (mx.arange, arange_arg_marshaler),
     aten.unsqueeze.default: (mx.expand_dims, passthrough_arg_marshaler),
-    aten.full.default: (mx.full, passthrough_arg_marshaler),
+    aten.full.default: (mx.full, full_arg_marshaler),
     # NOTE: aten view only meant to work on contiguous tensors and is ALWAYS zero-copy,
     # presumably mx.reshape copies in the non-contiguous case
     aten.view.default: (mx.reshape, passthrough_arg_marshaler),
@@ -79,7 +86,6 @@ _aten_mlx_mapping: Dict[
     # for the purposes of an inference compiler we can treat it as the same
     # https://github.com/pytorch/pytorch/blob/e1abbe155ec4fb4fd94281f86282bed22d38c5ae/aten/src/ATen/native/TensorShape.cpp#L4020
     aten._unsafe_view.default: (mx.reshape, passthrough_arg_marshaler),
-    aten.slice.Tensor: (slice, passthrough_arg_marshaler),
     # TODO: dtype removal in clone marshaling should replace with mlx dtype, maybe use mx.view
     # looks like aten.clone creates a whole new tensor with data (mlx does this with modifications,
     # so using __copy__ which only actaully copies when there is mutation) should preserve semantics and be faster
@@ -98,6 +104,10 @@ _aten_mlx_mapping: Dict[
     aten.split.Tensor: (custom_split, passthrough_arg_marshaler),
     # aten.dropout.default: (custom_ops.passthrough, passthrough_arg_marshaler),
     aten.scaled_dot_product_attention.default: (custom_sdpa, sdpa_arg_marshaler),
+    aten._scaled_dot_product_flash_attention_for_cpu.default: (
+        custom_sdpa,
+        sdpa_arg_marshaler,
+    ),
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
     aten.layer_norm.default: (mx.fast.layer_norm, layernorm_arg_marshaler),
@@ -105,6 +115,7 @@ _aten_mlx_mapping: Dict[
     aten.mean.dim: (mx.mean, mean_arg_marshaler),
     aten.mean.default: (mx.mean, passthrough_arg_marshaler),
     aten.einsum.default: (mx.einsum, einsum_arg_marshaler),
+    aten.detach.default: (mx.stop_gradient, passthrough_arg_marshaler),
 }
 
 
@@ -169,9 +180,6 @@ class MLXASTBuilder:
                 # https://pytorch.org/docs/stable/fx.html#torch.fx.Node
                 self.addReturn(node.args[0])
             elif node.op == "get_attr":
-                # attr = getattr(gm._graph_module, node.target)
-                # print(attr)
-                # pprint(vars(node))
                 raise ValueError(f"unhandled getattr")
 
             else:
@@ -196,7 +204,6 @@ class MLXASTBuilder:
                     keywords=ast_kwargs,
                 ),
             )
-            # print(f"calling fn {getmodule(mlx_fn).__name__}.{mlx_fn.__name__}")
             self.calls.append(ast_assign)
         elif custom_lowering := custom_lowerings_map[aten_op]:
             custom_ast = custom_lowering(var_name, args, kwargs)
@@ -251,8 +258,13 @@ class MLXASTBuilder:
 
         module = ast.Module(body=self.imports + [mlx_func], type_ignores=[])
         ast.fix_missing_locations(module)
-        print(f"Generated Python code:\n{ast.unparse(module)}")
-        code = compile(module, "<mlx_ast>", "exec")
+        generated_code = ast.unparse(module)
+        filename = os.path.expanduser("~/.cache/proteus/compiled_mlx_fn.py")
+        logger.debug(f"Generated Python code:\n{generated_code}")
+        with open(filename, "w") as f:
+            f.write(generated_code)
+
+        code = compile(generated_code, filename, "exec")
         namespace = {}
         exec(code, namespace)
 

@@ -1,5 +1,7 @@
 import ast
 from typing import List, Dict, Any
+from itertools import zip_longest
+import sys
 
 import torch
 from torch.fx import Node
@@ -112,3 +114,50 @@ def _to_copy_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AS
             value=assign_ast,
         ),
     )
+
+
+def slice_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
+    """
+    Generate an AST for an aten.slice.Tensor op which should produce
+    the proper Python slice on the array, for example:
+
+    `aten.slice.Tensor(a, 0, 0, 4, 2)` -> a[0:4:2, :, :]
+    """
+
+    tensor, *rest = args
+    assert isinstance(tensor, Node)
+
+    lrest = len(rest)
+    dim = kwargs.get("dim", 0) if lrest < 1 else rest[0]
+    start = kwargs.get("start") if lrest < 2 else rest[1]
+    end = kwargs.get("end") if lrest < 3 else rest[2]
+    step = kwargs.get("step", 1) if lrest < 4 else rest[3]
+
+    # aten.slice.Tensor will use the maxsize for going to the end of a slice,
+    # we want this to be none to get the proper full slice
+    end = end if end != sys.maxsize else None
+
+    # for a slice on a single dim of the tensor, I need to know
+    # how many dims the tensor has, aten slice only slices a single dim at a time
+    key = "val" if "val" in tensor.meta else "example_value"
+    ndims = tensor.meta[key].ndim
+
+    # for the : parts of the multidim slice
+    full_slice = ast.Slice(lower=None, upper=None, step=None)
+    dim_slice = ast.Slice(
+        lower=convert_arg_to_ast(start),
+        upper=convert_arg_to_ast(end),
+        step=convert_arg_to_ast(step),
+    )
+
+    slice_elts = [full_slice if i != dim else dim_slice for i in range(ndims)]
+
+    slice_value = ast.Subscript(
+        value=ast.Name(id=tensor.name, ctx=ast.Load()),
+        slice=ast.Tuple(elts=slice_elts, ctx=ast.Load()),
+        ctx=ast.Load(),
+    )
+
+    return [
+        ast.Assign(targets=[ast.Name(id=var_name, ctx=ast.Store())], value=slice_value)
+    ]

@@ -5,7 +5,7 @@ from proteus.proteus import proteus_v4
 
 
 def compile_llama():
-    model_name = "meta-llama/Llama-3.2-1B"
+    model_name = "meta-llama/Llama-3.2-1B-Instruct"
     model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name, legacy=False)
 
@@ -15,14 +15,21 @@ def compile_llama():
     # Set the model as our test model
     test_out = model(test_in["input_ids"], attention_mask=test_in["attention_mask"])
 
-    # use export().run_decompositions() to get core aten ir graph
-    # without lifing model params into inputs
-
     compiled = proteus_v4(model)
     compiled_out = compiled(
         test_in["input_ids"], attention_mask=test_in["attention_mask"]
     )
-    print(compiled_out[0], test_out[0])
+
+    # Get the most likely token predictions
+    compiled_tokens = torch.argmax(compiled_out[0], dim=-1)
+    test_tokens = torch.argmax(test_out[0], dim=-1)
+
+    # Decode the tokens back to text
+    compiled_text = tokenizer.batch_decode(compiled_tokens, skip_special_tokens=True)
+    test_text = tokenizer.batch_decode(test_tokens, skip_special_tokens=True)
+
+    print("Compiled output:", compiled_text)
+    print("Original output:", test_text)
 
 
 # def export_llama_getattr():
