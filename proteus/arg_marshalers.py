@@ -54,6 +54,22 @@ def convert_arg_to_ast(arg) -> ast.AST:
         )
 
 
+def sum_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs for aten.sum.default."""
+    # only thing to do is pluck out dtype kwarg, which is only kwarg for default
+    return passthrough_arg_marshaler(args)
+
+
+def any_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs for aten.any.dim."""
+    # happens to be the same as mean_arg_marshaler
+    return mean_arg_marshaler(args, kwargs)
+
+
 def slice_arg_marshaler(
     args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
@@ -76,6 +92,17 @@ def full_arg_marshaler(
     # cannot just pop because kwargs is immutable dict
     kwargs = {k: v for k, v in kwargs.items() if k not in ("pin_memory", "device")}
     return passthrough_arg_marshaler(args, kwargs)
+
+
+def _softmax_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    """Map input args and kwargs for aten._softmax.default."""
+
+    tensor = args[0]
+    axis = kwargs.get("dim", args[1])
+
+    return passthrough_arg_marshaler((tensor, axis))
 
 
 def arange_arg_marshaler(
@@ -164,6 +191,12 @@ def layernorm_arg_marshaler(
     return passthrough_arg_marshaler((_input, weight, bias, eps))
 
 
+def sdpa_cpu_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+    return sdpa_arg_marshaler(args, {**kwargs, "is_cpu": True})
+
+
 def sdpa_arg_marshaler(
     args: List[Node], kwargs: Dict
 ) -> Tuple[List[ast.AST], List[ast.keyword]]:
@@ -177,6 +210,7 @@ def sdpa_arg_marshaler(
     attn_mask = kwargs.get("attn_mask")
     is_causal = kwargs.get("is_causal", False)
     dropout_p = kwargs.get("dropout_p", 0)
+    is_cpu = kwargs.get("is_cpu", False)
 
     tensor_key = "val" if "val" in q.meta else "example_value"
     assert isinstance(q, Node) and (
@@ -191,7 +225,13 @@ def sdpa_arg_marshaler(
     assert dropout_p == 0
 
     return passthrough_arg_marshaler(
-        (q, k, v), {"scale": scale, "attn_mask": attn_mask, "is_causal": is_causal}
+        (q, k, v),
+        {
+            "scale": scale,
+            "attn_mask": attn_mask,
+            "is_causal": is_causal,
+            "is_cpu": is_cpu,
+        },
     )
 
 

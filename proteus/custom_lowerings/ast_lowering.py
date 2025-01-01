@@ -116,6 +116,44 @@ def _to_copy_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AS
     )
 
 
+def index_copy_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
+    """
+    Generate an AST for an aten.index_copy_.default op:
+    `aten.index_copy.default(_self, 0, index, tensor)` -> a[index] = tensor
+    """
+
+    # for now, assume all are args and not kwargs
+    assert len(args) == 4
+    _self, dim, index, tensor = args
+
+    assert isinstance(_self, Node)
+    key = "val" if "val" in _self.meta else "example_value"
+    ndims = _self.meta[key].ndim
+
+    # the index needs to be at the dim'th index of a tuple used to slice
+    full_slice = ast.Slice(lower=None, upper=None, step=None)
+    index_slice = ast.Name(id=index.name, ctx=ast.Load())
+    slice_ast = ast.Tuple(
+        elts=[full_slice if i != dim else index_slice for i in range(ndims)]
+    )
+    index_ast = ast.Subscript(
+        value=ast.Name(id=_self.name, ctx=ast.Load()),
+        slice=slice_ast,
+        ctx=ast.Store(),
+    )
+
+    assign_ast = ast.Assign(
+        targets=[index_ast], value=ast.Name(id=tensor.name, ctx=ast.Load())
+    )
+    return [
+        assign_ast,
+        ast.Assign(
+            targets=[ast.Name(id=var_name, ctx=ast.Store())],
+            value=ast.Name(id=_self.name, ctx=ast.Load()),
+        ),
+    ]
+
+
 def slice_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
     """
     Generate an AST for an aten.slice.Tensor op which should produce

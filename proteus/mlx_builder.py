@@ -10,6 +10,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from proteus.arg_marshalers import (
+    module_strs_to_ast,
     passthrough_arg_marshaler,
     take_arg_marshaler,
     t_arg_marshaler,
@@ -18,20 +19,21 @@ from proteus.arg_marshalers import (
     expand_arg_marshaler,
     layernorm_arg_marshaler,
     sdpa_arg_marshaler,
+    sdpa_cpu_arg_marshaler,
     triangle_arg_marshaler,
     mean_arg_marshaler,
     einsum_arg_marshaler,
     arange_arg_marshaler,
     full_arg_marshaler,
-    slice_arg_marshaler,
-    module_strs_to_ast,
+    any_arg_marshaler,
+    sum_arg_marshaler,
+    _softmax_arg_marshaler,
 )
 
 from proteus.custom_ops import (
     expand,
     custom_split,
     custom_sdpa,
-    slice,
     masked_fill_scalar,
 )
 
@@ -49,6 +51,7 @@ _aten_mlx_mapping: Dict[
 ] = {
     aten.mm.default: (mx.matmul, passthrough_arg_marshaler),
     aten.bmm.default: (mx.matmul, passthrough_arg_marshaler),
+    aten.addmm.default: (mx.addmm, passthrough_arg_marshaler),
     aten.t.default: (mx.transpose, t_arg_marshaler),
     aten.transpose.int: (mx.swapaxes, transpose_int_arg_marshaler),
     aten.expand.default: (expand, expand_arg_marshaler),
@@ -106,16 +109,20 @@ _aten_mlx_mapping: Dict[
     aten.scaled_dot_product_attention.default: (custom_sdpa, sdpa_arg_marshaler),
     aten._scaled_dot_product_flash_attention_for_cpu.default: (
         custom_sdpa,
-        sdpa_arg_marshaler,
+        sdpa_cpu_arg_marshaler,
     ),
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
+    operator.add: (operator.add, passthrough_arg_marshaler),
     aten.layer_norm.default: (mx.fast.layer_norm, layernorm_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
     aten.mean.dim: (mx.mean, mean_arg_marshaler),
     aten.mean.default: (mx.mean, passthrough_arg_marshaler),
     aten.einsum.default: (mx.einsum, einsum_arg_marshaler),
     aten.detach.default: (mx.stop_gradient, passthrough_arg_marshaler),
+    aten.any.dim: (mx.any, any_arg_marshaler),
+    aten.sum.default: (mx.sum, sum_arg_marshaler),
+    aten._softmax.default: (mx.softmax, _softmax_arg_marshaler),
 }
 
 
@@ -169,6 +176,8 @@ class MLXASTBuilder:
         self.ret: ast.Return = None
 
     def ingest_graph(self, graph: Graph):
+        with open(os.path.expanduser("~/.cache/proteus/fx_graph.py"), "w") as f:
+            f.write(graph.python_code({}).src)
         for node in graph.nodes:
             if node.op == "placeholder":
                 self.addArgument(node.name)
@@ -205,7 +214,7 @@ class MLXASTBuilder:
                 ),
             )
             self.calls.append(ast_assign)
-        elif custom_lowering := custom_lowerings_map[aten_op]:
+        elif custom_lowering := custom_lowerings_map.get(aten_op):
             custom_ast = custom_lowering(var_name, args, kwargs)
             self.calls.extend(custom_ast)
         else:

@@ -1,6 +1,7 @@
 from pprint import pprint
 import numpy as np
 from typing import Dict
+import logging
 
 import mlx.core as mx
 
@@ -14,6 +15,7 @@ from torch._functorch.aot_autograd import (
 
 from c_extensions import get_strides
 
+logger = logging.getLogger(__file__)
 
 torch_dtype_map: Dict[torch.dtype, mx.Dtype] = {
     torch.float32: mx.float32,
@@ -34,7 +36,7 @@ def coerce_torch_to_mx(val: torch.Tensor) -> mx.array:
     Note that this currently COPIES the tensor, so use sparingly.
     """
 
-    print("coercing torch to mlx")
+    logger.debug("coercing torch to mlx")
     return mx.array(val.numpy(force=True))
 
 
@@ -55,7 +57,7 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     """
     Convert an MLX array into a PyTorch tensor.
     """
-    print("coercing mlx to torch")
+    logger.debug("coercing mlx to torch")
     strides = get_strides(val)
     # if the strides are kooky (last stride is not 1), the way you create
     # the buffer must be different, need enough raw elements to capture all values in the stride
@@ -63,6 +65,8 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     # always inline a copy into the compiled code later if this check is slow
     if strides and (strides[-1] != 1 or strides[0] != val.shape[-1]):
         return torch.from_numpy(np.array(val))
+    if val.size == 0:
+        return torch.tensor([], dtype=mlx_dtype_map[val.dtype])
 
     tensor = torch.frombuffer(val, count=val.size, dtype=mlx_dtype_map[val.dtype])
     return torch.as_strided(tensor, val.shape, strides)

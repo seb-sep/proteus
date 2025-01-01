@@ -12,9 +12,11 @@ def custom_sdpa(
     q: mx.array,
     k: mx.array,
     v: mx.array,
+    *,
     attn_mask: Union[mx.array, None],
     is_causal: bool,
     scale: bool,
+    is_cpu: bool,
 ):
     if attn_mask is not None and attn_mask.dtype == mx.bool_:
         attn_mask = mx.where(attn_mask, 0, -float("inf"))
@@ -23,7 +25,11 @@ def custom_sdpa(
             mx.full((q.shape[-2], k.shape[-2]), -float("inf"), dtype=q.dtype), k=1
         )
 
-    return mx.fast.scaled_dot_product_attention(q, k, v, scale=scale, mask=attn_mask)
+    # FIXME: hack for now, but because torch cpu flashattn returns a tuple of the attn and lse,
+    # it adds getitems to the fx graph to destructure the tuple, we want the getitem to retrieve
+    # the full scores in the cpu case
+    attn = mx.fast.scaled_dot_product_attention(q, k, v, scale=scale, mask=attn_mask)
+    return (attn, mx.array([])) if is_cpu else attn
 
 
 def custom_split(

@@ -8,12 +8,12 @@ import mlx.core as mx
 
 
 class SimpleModule(nn.Module):
-    def __init__(self, in_dim, h_dim, out_dim):
+    def __init__(self, in_dim, h_dim, out_dim, dtype=torch.float32):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(in_dim, h_dim, bias=False),
+            nn.Linear(in_dim, h_dim, bias=False, dtype=dtype),
             nn.ReLU(),
-            nn.Linear(h_dim, out_dim, bias=False),
+            nn.Linear(h_dim, out_dim, bias=False, dtype=dtype),
         )
 
     def forward(self, x):
@@ -21,11 +21,13 @@ class SimpleModule(nn.Module):
 
 
 class EmbeddingModule(nn.Module):
-    def __init__(self, vocab_size=1000, embedding_dim=64, hidden_dim=32):
+    def __init__(
+        self, vocab_size=1000, embedding_dim=64, hidden_dim=32, dtype=torch.float32
+    ):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.fc = nn.Linear(embedding_dim, hidden_dim)
-        self.out = nn.Linear(hidden_dim, vocab_size)
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, dtype=dtype)
+        self.fc = nn.Linear(embedding_dim, hidden_dim, dtype=dtype)
+        self.out = nn.Linear(hidden_dim, vocab_size, dtype=dtype)
 
     def forward(self, x):
         # x shape: (batch_size, seq_len)
@@ -36,18 +38,18 @@ class EmbeddingModule(nn.Module):
 
 
 class TestModule(nn.Module):
-    def __init__(self, in_dim, h_dim, out_dim):
+    def __init__(self, in_dim, h_dim, out_dim, dtype=torch.float32):
         super().__init__()
 
         self.in_dim = in_dim
         self.out_dim = out_dim
 
-        self.fc1 = nn.Linear(in_dim, h_dim, bias=False)
-        self.fc2 = nn.Linear(h_dim, out_dim, bias=False)
+        self.fc1 = nn.Linear(in_dim, h_dim, bias=False, dtype=dtype)
+        self.fc2 = nn.Linear(h_dim, out_dim, bias=False, dtype=dtype)
 
     def forward(self, x):
         x = self.fc1(x)
-        x = F.silu(x)
+        x = F.relu(x)
         x = torch.triu(x)
         x = self.fc2(x)
         x = torch.sin(x)
@@ -55,18 +57,18 @@ class TestModule(nn.Module):
 
 
 class TestGraphBreakModule(nn.Module):
-    def __init__(self, in_dim, h_dim, out_dim):
+    def __init__(self, in_dim, h_dim, out_dim, dtype=torch.float32):
         super().__init__()
 
         self.in_dim = in_dim
         self.out_dim = out_dim
 
-        self.fc1 = nn.Linear(in_dim, h_dim, bias=False)
-        self.fc2 = nn.Linear(h_dim, out_dim, bias=False)
+        self.fc1 = nn.Linear(in_dim, h_dim, bias=False, dtype=dtype)
+        self.fc2 = nn.Linear(h_dim, out_dim, bias=False, dtype=dtype)
 
     def forward(self, x):
         x = self.fc1(x)
-        x = F.silu(x)
+        # x = F.silu(x)
 
         # Add data dependent branching based on mean value
         mean_val = torch.mean(x)
@@ -75,9 +77,6 @@ class TestGraphBreakModule(nn.Module):
         else:
             x = torch.tril(x)
         x = self.fc2(x)
-        # Add another data dependent branch
-        x = torch.sin(x)
-        x = torch.cos(x)
         return x
 
 

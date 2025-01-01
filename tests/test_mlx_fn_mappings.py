@@ -1,6 +1,7 @@
 import unittest
 from typing import Callable, Any, Tuple, Dict, Iterable, List
 import sys
+import logging
 
 import torch
 from torch.fx import GraphModule, Graph, Node
@@ -12,6 +13,8 @@ from proteus.mlx_builder import MLXASTBuilder
 from torch.fx.experimental.proxy_tensor import make_fx
 
 aten = torch.ops.aten
+
+logger = logging.getLogger(__file__)
 
 
 class TestMLXFunctionMappings(unittest.TestCase):
@@ -60,7 +63,7 @@ class TestMLXFunctionMappings(unittest.TestCase):
         #         ret_gm.graph.erase_node(node)
 
         # ret_gm.recompile()
-        print(ret_gm.graph)
+        logger.debug(ret_gm.graph)
         return ret_gm, ret_example_inputs
 
     def _test_op(
@@ -107,19 +110,16 @@ class TestMLXFunctionMappings(unittest.TestCase):
             )
             for arg in example_inputs
         )
-        # print("Flattened MLX args:", flattened_mlx_args)
-        # print("oriignal PyTorch args:", example_args, example_kwargs)
         mlx_results = mlx_fn(*flattened_mlx_args)
         mx.eval(mlx_results)
-        # print("results", mlx_results)
 
         mlx_results = tuple(coerce_mx_to_torch(out) for out in mlx_results)
 
         # testing hack for not checking logsumexp for cpu flash attention aten op
         if torch_op == aten._scaled_dot_product_flash_attention_for_cpu.default:
+            assert len(torch_results) == 2 and len(mlx_results) == 2
             torch_results = torch_results[:1]
             mlx_results = mlx_results[:1]
-        # print("torchified results:", mlx_results)
         # Compare results
         for torch_result, mlx_result in zip(torch_results, mlx_results):
             if torch_result.dtype.is_floating_point:
@@ -175,12 +175,26 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
     def test_transpose(self):
         """Test transpose with dimension arguments"""
+        # Test 3D tensor
         a = torch.randint(0, 10, (32, 64, 16), dtype=torch.int32)
         op = aten.transpose.int
 
         # Test transposing different dimensions
         self._test_op(op, (a, 0, 1))
         self._test_op(op, (a, 1, 2))
+
+        # Test 4D tensor
+        b = torch.randint(0, 10, (8, 32, 64, 16), dtype=torch.int32)
+
+        # Test transposing adjacent dimensions
+        self._test_op(op, (b, 0, 1))
+        self._test_op(op, (b, 1, 2))
+        self._test_op(op, (b, 2, 3))
+
+        # Test transposing non-adjacent dimensions
+        self._test_op(op, (b, 0, 2))
+        self._test_op(op, (b, 1, 3))
+        self._test_op(op, (b, 0, 3))
 
     def test_expand(self):
         """Test expand/broadcast operator"""
@@ -203,19 +217,38 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
     def test_activations(self):
         """Test various activation functions"""
+        # Test ReLU with different input shapes and values
         a = torch.randn((32, 64), dtype=torch.float16)
-
-        # Test ReLU
         self._test_op(aten.relu.default, (a,))
+
+        # Test ReLU with negative values
+        b = torch.randn((16, 128), dtype=torch.float16) - 2.0
+        self._test_op(aten.relu.default, (b,))
+
+        # Test ReLU with 3D tensor
+        c = torch.randn((8, 32, 64), dtype=torch.float16)
+        self._test_op(aten.relu.default, (c,))
 
         # these tolerances are kinda bad but there's nothing I can do about it because there are no knobs
         # to tweak
 
-        # Test SiLU/Swish
+        # Test SiLU/Swish with different shapes
         self._test_op(aten.silu.default, (a,), atol=3e-3, rtol=1e-3)
+        self._test_op(aten.silu.default, (b,), atol=3e-3, rtol=1e-3)
+        self._test_op(aten.silu.default, (c,), atol=3e-3, rtol=1e-3)
 
-        # Test GELU
+        # Test SiLU with extreme values
+        d = torch.randn((64, 32), dtype=torch.float16) * 10.0
+        self._test_op(aten.silu.default, (d,), atol=3e-3, rtol=1e-3)
+
+        # Test GELU with different shapes
         self._test_op(aten.gelu.default, (a,), atol=1e-3, rtol=1e-3)
+        self._test_op(aten.gelu.default, (b,), atol=1e-3, rtol=1e-3)
+        self._test_op(aten.gelu.default, (c,), atol=1e-3, rtol=1e-3)
+
+        # Test GELU with extreme values
+        e = torch.randn((128, 16), dtype=torch.float16) * 5.0
+        self._test_op(aten.gelu.default, (e,), atol=1e-3, rtol=1e-3)
 
     def test_triangular(self):
         """
@@ -763,15 +796,15 @@ class TestMLXFunctionMappings(unittest.TestCase):
     def test_sdpa(self):
         """Test scaled dot product attention operator"""
         # Test basic case
-        # batch_size = 2
-        # num_heads = 4
-        # seq_len = 8
-        # head_dim = 16
+        batch_size = 2
+        num_heads = 4
+        seq_len = 8
+        head_dim = 16
 
-        batch_size = 1
-        num_heads = 1
-        seq_len = 4
-        head_dim = 4
+        # batch_size = 1
+        # num_heads = 1
+        # seq_len = 4
+        # head_dim = 4
 
         query = torch.randn(
             (batch_size, num_heads, seq_len, head_dim), dtype=torch.float32
@@ -1004,6 +1037,23 @@ class TestMLXFunctionMappings(unittest.TestCase):
         self._test_op(aten.slice.Tensor, (a, 1, 0, sys.maxsize))
         self._test_op(aten.slice.Tensor, (a, 2, 10, sys.maxsize))
 
+        # Test 4D tensor slicing
+        b = torch.randn((8, 16, 32, 64), dtype=torch.float32)
+        self._test_op(aten.slice.Tensor, (b, 0, 2, 6))  # Slice batch dim
+        self._test_op(aten.slice.Tensor, (b, 1, 5, 12))  # Slice channel dim
+        self._test_op(aten.slice.Tensor, (b, 2, 10, 25))  # Slice height dim
+        self._test_op(aten.slice.Tensor, (b, 3, 20, 50))  # Slice width dim
+        self._test_op(aten.slice.Tensor, (b, 1, 0, None, 2))  # Slice with step
+
+        # Test 5D tensor slicing
+        c = torch.randn((4, 8, 16, 32, 64), dtype=torch.float32)
+        self._test_op(aten.slice.Tensor, (c, 0, 1, 3))  # Slice first dim
+        self._test_op(aten.slice.Tensor, (c, 1, 2, 6))  # Slice second dim
+        self._test_op(aten.slice.Tensor, (c, 2, 5, 12))  # Slice third dim
+        self._test_op(aten.slice.Tensor, (c, 3, 10, 25))  # Slice fourth dim
+        self._test_op(aten.slice.Tensor, (c, 4, 20, 50))  # Slice fifth dim
+        self._test_op(aten.slice.Tensor, (c, 2, 0, sys.maxsize, 3))  # Slice with step
+
     def test_masked_fill(self):
         """Test masked_fill operator with scalar values"""
         # Test basic masked fill
@@ -1047,7 +1097,155 @@ class TestMLXFunctionMappings(unittest.TestCase):
         d = torch.randn((32, 64), dtype=torch.float16)
         self._test_op(aten.detach.default, (d,))
 
+    def test_any(self):
+        """Test any operator with dim reduction"""
+        # Test basic any reduction along single dimension
+        a = torch.tensor([[True, False], [True, True]], dtype=torch.bool)
+        self._test_op(aten.any.dim, (a, 0))
+        self._test_op(aten.any.dim, (a, 1))
+
+        # Test with keepdim
+        self._test_op(aten.any.dim, (a, 0, True))
+        self._test_op(aten.any.dim, (a, 1, True))
+
+        # Test with 3D tensor
+        b = torch.tensor(
+            [[[True, False], [False, False]], [[False, True], [True, True]]],
+            dtype=torch.bool,
+        )
+        self._test_op(aten.any.dim, (b, 0))
+        self._test_op(aten.any.dim, (b, 1))
+        self._test_op(aten.any.dim, (b, 2))
+
+        # Test with all False tensor
+        c = torch.zeros((3, 4), dtype=torch.bool)
+        self._test_op(aten.any.dim, (c, 0))
+        self._test_op(aten.any.dim, (c, 1))
+
+        # Test with all True tensor
+        d = torch.ones((3, 4), dtype=torch.bool)
+        self._test_op(aten.any.dim, (d, 0))
+        self._test_op(aten.any.dim, (d, 1))
+
+    def test_index_copy(self):
+        """Test index_copy_ operator"""
+        # Test basic index copy
+        src = torch.randn((5, 3), dtype=torch.float32)
+        index = torch.tensor([0, 2, 4])
+        tensor = torch.randn((3, 3), dtype=torch.float32)
+        self._test_op(aten.index_copy_.default, (src, 0, index, tensor))
+
+        # Test with different dimension
+        src = torch.randn((3, 4), dtype=torch.float32)
+        index = torch.tensor([1, 2])
+        tensor = torch.randn((3, 2), dtype=torch.float32)
+        self._test_op(aten.index_copy_.default, (src, 1, index, tensor))
+
+        # Test with 3D tensor
+        src = torch.randn((3, 4, 2), dtype=torch.float32)
+        index = torch.tensor([0, 2])
+        tensor = torch.randn((2, 4, 2), dtype=torch.float32)
+        self._test_op(aten.index_copy_.default, (src, 0, index, tensor))
+
+        # Test with different dtype
+        src = torch.randn((4, 3), dtype=torch.float16)
+        index = torch.tensor([1, 3])
+        tensor = torch.randn((2, 3), dtype=torch.float16)
+        self._test_op(aten.index_copy_.default, (src, 0, index, tensor))
+
+    def test_embedding(self):
+        """Test embedding operator as used in language models"""
+        # Test basic embedding lookup with smaller vocab/dims for testing
+        vocab_size = 100
+        embedding_dim = 32
+        weight = torch.randn((vocab_size, embedding_dim), dtype=torch.float32)
+
+        # Single token lookup
+        indices = torch.tensor([1], dtype=torch.long)
+        self._test_op(aten.embedding.default, (weight, indices))
+
+        # Batch of token sequences like you'd see in an LLM
+        batch_size = 2
+        seq_len = 8
+        indices = torch.randint(0, vocab_size, (batch_size, seq_len))
+        self._test_op(aten.embedding.default, (weight, indices))
+
+        # Test with different embedding dimensions
+        small_dim = 16
+        weight = torch.randn((50, small_dim), dtype=torch.float32)
+        indices = torch.randint(0, 50, (2, 4))
+        self._test_op(aten.embedding.default, (weight, indices))
+
+        # Test with float16 weights as often used in quantized models
+        weight = torch.randn((40, 24), dtype=torch.float16)
+        indices = torch.randint(0, 40, (2, 6))
+        self._test_op(aten.embedding.default, (weight, indices))
+
+        # Test edge cases
+        # Single token
+        indices = torch.tensor(5)
+        self._test_op(aten.embedding.default, (weight, indices))
+
+        # Empty sequence
+        # indices = torch.zeros((0,), dtype=torch.long)
+        # self._test_op(aten.embedding.default, (weight, indices))
+
+    def test_addmm(self):
+        """Test addmm operator (matrix multiplication with addition)"""
+        # Test basic case with small matrices
+        input = torch.randn((4, 4), dtype=torch.float32)
+        mat1 = torch.randn((4, 3), dtype=torch.float32)
+        mat2 = torch.randn((3, 4), dtype=torch.float32)
+        self._test_op(aten.addmm.default, (input, mat1, mat2))
+
+        # Test with alpha and beta scalars
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 0.5, "beta": 2.0}
+        )
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 0.0, "beta": 1.0}
+        )
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 2.0, "beta": 0.0}
+        )
+
+        # Test with different dimensions
+        input = torch.randn((2, 6), dtype=torch.float32)
+        mat1 = torch.randn((2, 4), dtype=torch.float32)
+        mat2 = torch.randn((4, 6), dtype=torch.float32)
+        self._test_op(aten.addmm.default, (input, mat1, mat2))
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 1.5, "beta": 0.7}
+        )
+
+        # Test with float16 dtype
+        input = torch.randn((3, 3), dtype=torch.float16)
+        mat1 = torch.randn((3, 2), dtype=torch.float16)
+        mat2 = torch.randn((2, 3), dtype=torch.float16)
+        self._test_op(aten.addmm.default, (input, mat1, mat2))
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 0.3, "beta": 1.2}
+        )
+
+        # Test with 1x1 matrices
+        input = torch.randn((1, 1), dtype=torch.float32)
+        mat1 = torch.randn((1, 1), dtype=torch.float32)
+        mat2 = torch.randn((1, 1), dtype=torch.float32)
+        self._test_op(aten.addmm.default, (input, mat1, mat2))
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 2.5, "beta": 0.1}
+        )
+
+        # Test with larger matrices
+        input = torch.randn((32, 64), dtype=torch.float32)
+        mat1 = torch.randn((32, 16), dtype=torch.float32)
+        mat2 = torch.randn((16, 64), dtype=torch.float32)
+        self._test_op(aten.addmm.default, (input, mat1, mat2))
+        self._test_op(
+            aten.addmm.default, (input, mat1, mat2), {"alpha": 0.8, "beta": 1.7}
+        )
+
 
 if __name__ == "__main__":
-    # unittest.main()
-    TestMLXFunctionMappings().test_mean()
+    unittest.main()
+    # TestMLXFunctionMappings().test_mean()
