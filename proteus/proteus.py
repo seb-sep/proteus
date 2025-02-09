@@ -1,17 +1,17 @@
-from typing import List, Dict, Union
+from typing import Dict, Union, TypeVar, List
 import logging
+from functools import partial
 
 import torch.nn as nn
 import torch.fx as fx
 import torch
-from functorch.compile import aot_module_simplified
-import torch.utils._pytree as pytree
 from torch.fx.experimental.proxy_tensor import make_fx
 
 import mlx.core as mx
 
 from proteus.mlx_builder import MLXASTBuilder
 from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
+from c_extensions import contiguous
 
 MLX_DEVICE = mx.default_device()
 logger = logging.getLogger(__file__)
@@ -27,13 +27,13 @@ def mlx_compiler(
 
     def _mlx_compiler(gm: fx.GraphModule, sample_inputs):
 
-        aten_graph = make_fx(gm)(*sample_inputs)
+        aten_graph = make_fx(gm, tracing_mode="fake")(*sample_inputs)
 
         builder = MLXASTBuilder()
         builder.ingest_graph(aten_graph.graph)
 
-        mlx_fn = mx.compile(builder.export())
-        # mlx_fn = builder.export()
+        # mlx_fn = mx.compile(builder.export())
+        mlx_fn = builder.export()
 
         # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
         # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
@@ -124,7 +124,10 @@ def replace_buffer_with_mlx(
         submod.register_buffer(buffer_subname, torch_digital_twin)
 
 
-def proteus(mod: nn.Module):
+T = TypeVar("T", bound=nn.Module)
+
+
+def proteus(mod: T) -> T:
 
     # inference only for now
     mod.eval()
@@ -143,10 +146,82 @@ def proteus(mod: nn.Module):
         replace_buffer_with_mlx(mod, static_mlx_parameters_buffers, name, buf)
     # at this point the module SHOULD work just as before
 
-    setattr(mod, "old_forward", mod.forward)
+    # setattr(mod, "old_forward", mod.forward)
 
     # should I only compile the forward method?
+    # dynamic should probably be None by defaut, only be True when you know you need it
+    # for very specific models like LLMs
+
+    # if i have a huggingface llm, how to overwrite the cache used? I can still only compile
+    # forward for now as long as I intercept the cache used in generate
+    # therefore, the generate method must still be wrapped
+
+    try:
+        from transformers import GenerationMixin
+
+        if isinstance(mod, GenerationMixin):
+            # create wrapper over generate method
+            old_generate = mod.generate
+
+            def wrapped_generate(*args, **kwargs):
+                print("calling wrapped generate!")
+                if "past_key_values" in kwargs:
+                    cache = kwargs["past_key_values"]
+                    assert isinstance(cache, StaticCache)
+                    mlxify_static_cache(cache, static_mlx_parameters_buffers)
+                return old_generate(*args, **kwargs)
+
+            mod.generate = wrapped_generate
+    except ImportError:
+        logger.debug("transformers lib not available")
+
     mod.forward = torch.compile(
-        mod.forward, backend=mlx_compiler(static_mlx_parameters_buffers), dynamic=False
+        mod.forward, backend=mlx_compiler(static_mlx_parameters_buffers)
     )
     return mod
+
+
+from transformers import StaticCache
+
+
+def mlxify_static_cache(
+    cache: StaticCache, static_mlx_buffers: Dict[torch.Tensor, mx.array]
+) -> None:
+    """
+    Replace the tensors in the HF static KV cache with tensors backed by MLX
+    and populate the tensor-array mapping with the tensors in the cache.
+
+    Mutate the cache and buffer dict in place.
+    """
+
+    print("mlxifying static cache")
+
+    # cache values might also be registered under buf
+    for name, buf in list(cache.named_buffers()):
+        delattr(cache, name)
+        # replace_buffer_with_mlx(cache, static_mlx_buffers, name, buf)
+
+    # pop and create one at a time to minimize peak memory usage
+    mlx_key_cache: List[torch.Tensor] = []
+    while cache.key_cache:
+        key = cache.key_cache.pop(0)
+        mlx_key = coerce_torch_to_mx(key)
+        new_torch_key = coerce_mx_to_torch(mlx_key)
+        static_mlx_buffers[new_torch_key] = mlx_key
+
+        # remember that creating a torch tensor from mlx is just a view over the mlx array
+        mlx_key_cache.append(new_torch_key)
+
+    cache.key_cache = mlx_key_cache
+
+    mlx_value_cache: List[torch.Tensor] = []
+    while cache.value_cache:
+        value = cache.value_cache.pop(0)
+        mlx_value = coerce_torch_to_mx(value)
+        new_torch_value = coerce_mx_to_torch(mlx_value)
+        static_mlx_buffers[new_torch_value] = mlx_value
+
+        # remember that creating a torch tensor from mlx is just a view over the mlx array
+        mlx_value_cache.append(new_torch_value)
+
+    cache.value_cache = mlx_value_cache
