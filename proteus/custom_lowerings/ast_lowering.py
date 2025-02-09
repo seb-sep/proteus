@@ -12,6 +12,25 @@ from proteus.arg_marshalers import module_strs_to_ast, convert_arg_to_ast
 # produce a List[AST] and List[keyword]
 
 
+def size_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
+    """
+    Generate the proper AST for aten.size.default:
+    `aten.size.default(a)` -> `a.shape`
+    """
+
+    assert len(args) == 1 and len(kwargs) == 0
+    return [
+        ast.Assign(
+            targets=[ast.Name(id=var_name, ctx=ast.Store())],
+            value=ast.Attribute(
+                value=ast.Name(id=args[0].name, ctx=ast.Load()),
+                attr="shape",
+                ctx=ast.Load(),
+            ),
+        )
+    ]
+
+
 def copy_to_ast(var_name, args: List, kwargs: Dict[str, Any]) -> List[ast.AST]:
     """
     Generate the proper AST for aten.copy.default.
