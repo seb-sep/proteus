@@ -13,7 +13,7 @@ from torch._functorch.aot_autograd import (
     aot_function,
 )
 
-from c_extensions import get_strides
+from c_extensions import get_strides, contiguous
 
 logger = logging.getLogger(__file__)
 
@@ -58,13 +58,17 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
     Convert an MLX array into a PyTorch tensor.
     """
     logger.debug("coercing mlx to torch")
+    val = contiguous(val)
     strides = get_strides(val)
+    # NOTE: the below is no longer necessary because we can force mlx arrays
+    # to be contiguous, as seen above ^^^
     # if the strides are kooky (last stride is not 1), the way you create
     # the buffer must be different, need enough raw elements to capture all values in the stride
     # you should probably never run into this issue, for now, just copy and you can
     # always inline a copy into the compiled code later if this check is slow
-    if strides and (strides[-1] != 1 or strides[0] != val.shape[-1]):
-        return torch.from_numpy(np.array(val))
+    # maybe if I just force the mx array to be contiguous we're chill
+    # if strides and (strides[-1] != 1 or strides[0] != val.shape[-1]):
+    #     return torch.from_numpy(np.array(val))
     if val.size == 0:
         return torch.tensor([], dtype=mlx_dtype_map[val.dtype])
 

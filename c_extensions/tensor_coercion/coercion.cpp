@@ -8,12 +8,27 @@
 
 #include "coercion.h"
 
+using mlx::core::array;
+
 // use this to create a torch tensor from the buffer
-int mlx_to_ptr(mlx::core::array a) {
+int mlx_to_ptr(array a) {
     return reinterpret_cast<std::uintptr_t>(a.data<int>());
 }
 
-std::vector<size_t> get_strides(mlx::core::array arr) { return arr.strides(); }
+std::vector<size_t> get_strides(array arr) { return arr.strides(); }
+
+array mlx_contiguous(array a) {
+    return mlx::core::contiguous(a, false, mlx::core::default_device());
+}
+
+uint64_t get_data_ptr(array a) { 
+    auto ptr = a.data<float>();
+    return reinterpret_cast<uint64_t>(ptr);
+}
+
+
+
+
 
 
 // void* offset_ptr = static_cast<void*>(static_cast<char*>(static_cast<void*>(your_data)) - sizeof(size_t));

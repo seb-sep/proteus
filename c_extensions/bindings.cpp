@@ -53,4 +53,17 @@ NB_MODULE(cpp_ext, m) {
       &get_strides,
       "arr"_a,
       "get the strides of the mlx array as a list of ints");
+
+    m.def("contiguous",
+      &mlx_contiguous,
+      "a"_a,
+      "force an mlx array to be contiguous"
+    );
+
+    m.def("mlx_data_ptr",
+      &get_data_ptr,
+      "a"_a,
+      "get the underlying data pointer for an mlx array"
+    );
+
 }
