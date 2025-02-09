@@ -20,6 +20,19 @@ class SimpleModule(nn.Module):
         return self.layers(x)
 
 
+class IndexCopyModule(nn.Module):
+    def __init__(self, i, j, dtype=torch.float32):
+        super().__init__()
+        # along zeroth dim, copy a single ones row into the value at the zeroth dim (a row)
+        self.register_buffer("copy_tensor", torch.ones((1, j), dtype=dtype))
+        # copy along zeroth dim
+        self.register_buffer("indices", torch.tensor([0]))
+
+    def forward(self, x):
+        # Copy half of static_buffer into output at specified indices
+        return x.index_copy_(0, self.indices, self.copy_tensor)
+
+
 class EmbeddingModule(nn.Module):
     def __init__(
         self, vocab_size=1000, embedding_dim=64, hidden_dim=32, dtype=torch.float32

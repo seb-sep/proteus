@@ -1247,5 +1247,5 @@ class TestMLXFunctionMappings(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
-    # TestMLXFunctionMappings().test_mean()
+    # unittest.main()
+    TestMLXFunctionMappings().test_index_copy()
