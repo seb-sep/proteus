@@ -9,6 +9,7 @@ from .ast_lowering import (
     _to_copy_to_ast,
     slice_to_ast,
     index_copy_to_ast,
+    size_to_ast,
 )
 
 
@@ -30,4 +31,5 @@ custom_lowerings_map: Dict[
     aten._to_copy.default: _to_copy_to_ast,
     aten.slice.Tensor: slice_to_ast,
     aten.index_copy_.default: index_copy_to_ast,
+    aten.size.default: size_to_ast,
 }
