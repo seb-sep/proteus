@@ -53,9 +53,11 @@ mlx_dtype_map: Dict[torch.dtype, mx.Dtype] = {
 }
 
 
-def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
+def coerce_mx_to_torch(val: mx.array, out: torch.Tensor = None) -> torch.Tensor:
     """
     Convert an MLX array into a PyTorch tensor.
+    If passed a torch tensor, will update that tensor in-place with the MLX array's data
+    instead of creating a new torch tensor object.
     """
     logger.debug("coercing mlx to torch")
     val = contiguous(val)
@@ -73,7 +75,13 @@ def coerce_mx_to_torch(val: mx.array) -> torch.Tensor:
         return torch.tensor([], dtype=mlx_dtype_map[val.dtype])
 
     tensor = torch.frombuffer(val, count=val.size, dtype=mlx_dtype_map[val.dtype])
-    return torch.as_strided(tensor, val.shape, strides)
+    if out is not None:
+        out.set_(tensor.storage())
+    else:
+        out = tensor
+
+    out.as_strided_(val.shape, strides)
+    return out
 
 
 def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):

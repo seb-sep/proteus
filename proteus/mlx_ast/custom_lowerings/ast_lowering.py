@@ -6,7 +6,7 @@ import sys
 import torch
 from torch.fx import Node
 
-from proteus.arg_marshalers import module_strs_to_ast, convert_arg_to_ast
+from proteus.mlx_ast.arg_marshalers import module_strs_to_ast, convert_arg_to_ast
 
 # Note that custom AST lowerings take in generic args and kwargs but must still
 # produce a List[AST] and List[keyword]

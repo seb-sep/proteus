@@ -265,16 +265,6 @@ class TestLlama(TestProteus):
         )
         print("should be printing mlx cache bufs")
 
-        for buf, mlx_buf in zip(
-            (*cache.key_cache, *cache.value_cache),
-            (*cache_copy.key_cache, *cache_copy.value_cache),
-        ):
-            print("Torch:")
-            # print(buf)
-            print("mlx:")
-            # print(mlx_buf)
-            print(torch.abs(buf - mlx_buf).mean())
-
         # compiled_outs = model(**inputs, return_dict=False)
 
         self.compare_outs(outs.sequences, compiled_outs.sequences)
@@ -361,6 +351,7 @@ class TestLlama(TestProteus):
 
 if __name__ == "__main__":
     # TestLlama().test_llama_no_kv()
-    TestLlama().test_populated_kv()
+    # TestLlama().test_populated_kv()
     # TestLlama().test_kv_decoderblock()
     # unittest.main()
+    TestLlama().test_compile_llama()

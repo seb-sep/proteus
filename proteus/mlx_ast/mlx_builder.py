@@ -9,7 +9,7 @@ from torch.fx import Graph, Node
 import mlx.core as mx
 import mlx.nn as nn
 
-from proteus.arg_marshalers import (
+from proteus.mlx_ast.arg_marshalers import (
     module_strs_to_ast,
     passthrough_arg_marshaler,
     take_arg_marshaler,
@@ -37,7 +37,7 @@ from proteus.custom_ops import (
     masked_fill_scalar,
 )
 
-from proteus.custom_lowerings import custom_lowerings_map
+from proteus.mlx_ast.custom_lowerings import custom_lowerings_map
 
 aten = torch.ops.aten
 logger = logging.getLogger(__file__)
@@ -174,6 +174,16 @@ class MLXASTBuilder:
         self.calls: List[ast.AST] = []
         self.device = mx.default_device()
         self.ret: ast.Return = None
+
+    def lower_to_python(
+        self, graph: Graph
+    ) -> Callable[[List[mx.array]], List[mx.array]]:
+        """
+        Lowers a TorchFX aten graph into a Python AST calling MLX functions.
+        The resultant compiled function receives and returns tuples of MLX arrays.
+        """
+        self.ingest_graph(graph)
+        return self.export()
 
     def ingest_graph(self, graph: Graph):
         with open(os.path.expanduser("~/.cache/proteus/fx_graph.py"), "w") as f:

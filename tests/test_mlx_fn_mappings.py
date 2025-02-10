@@ -9,7 +9,7 @@ import mlx.core as mx
 from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
-from proteus.mlx_builder import MLXASTBuilder
+from proteus.mlx_ast.mlx_builder import MLXASTBuilder
 from torch.fx.experimental.proxy_tensor import make_fx
 
 aten = torch.ops.aten
