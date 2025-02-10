@@ -1,5 +1,6 @@
 from typing import Dict, Union, TypeVar, List
 import logging
+import time
 
 import torch
 import torch.nn as nn
@@ -34,12 +35,16 @@ def maybe_wrap_hf_generate(
             old_generate = mod.generate
 
             def wrapped_generate(*args, **kwargs):
-                print("calling wrapped generate!")
+                logger.debug("calling wrapped hf generate")
                 if "past_key_values" in kwargs:
                     cache = kwargs["past_key_values"]
                     assert isinstance(cache, StaticCache)
                     mlxify_static_cache(cache, static_mlx_parameters_buffers)
-                return old_generate(*args, **kwargs)
+                start = time.time()
+                outs = old_generate(*args, **kwargs)
+                end = time.time()
+                # print(f"generated compiled output in {end-start:.2f} seconds")
+                return outs
 
             mod.generate = wrapped_generate
     else:

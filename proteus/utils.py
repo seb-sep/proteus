@@ -8,8 +8,6 @@ import mlx.core as mx
 import torch
 import torch.fx as fx
 from torch._functorch.aot_autograd import (
-    aot_module_simplified,
-    aot_export_module,
     aot_function,
 )
 
@@ -76,7 +74,7 @@ def coerce_mx_to_torch(val: mx.array, out: torch.Tensor = None) -> torch.Tensor:
 
     tensor = torch.frombuffer(val, count=val.size, dtype=mlx_dtype_map[val.dtype])
     if out is not None:
-        out.set_(tensor.storage())
+        out.set_(tensor.untyped_storage())
     else:
         out = tensor
 
@@ -92,8 +90,6 @@ def aten_opset_compiler(gm: fx.GraphModule, sample_inputs):
         for node in gm.graph.nodes:
             if node.op in ["call_function", "call_module", "call_method"]:
                 s.add(node.target)
-
-        # print(gm.graph)
 
         print("Aten operators used in this graph:")
         for op in s:

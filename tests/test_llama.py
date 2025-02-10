@@ -2,6 +2,7 @@ import unittest
 import os
 from copy import deepcopy
 from typing import Tuple
+import time
 
 from transformers import (
     AutoModelForCausalLM,
@@ -273,50 +274,52 @@ class TestLlama(TestProteus):
     # https://github.com/huggingface/huggingface-llama-recipes/blob/main/performance_optimization/torch_compile.py
     def test_compile_llama(self):
         model: LlamaModel = AutoModelForCausalLM.from_pretrained(
-            self.model_name, torch_dtype=torch.float32
+            self.model_name, torch_dtype=torch.float16
         )
 
-        device = "cpu"
+        device = "mps"
         model.to(device)
 
         tokenizer = AutoTokenizer.from_pretrained(self.model_name, legacy=False)
         prompt = "what is a compiler?"
         inputs = tokenizer(prompt, return_tensors="pt").to(device)
+        inputs_cpu = tokenizer(prompt, return_tensors="pt")
 
         torch._dynamo.config.cache_size_limit = 10
         gen_config = GenerationConfig(
             cache_implementation="static",
-            cache_config={"batch_size": 1, "max_cache_len": 24},
-            # use_cache=False,
+            cache_config={"batch_size": 1, "max_cache_len": 128},
             num_beams=1,
-            max_length=25,
+            max_length=128,
             do_sample=False,
         )
 
         # Set the model as our test model
+        start = time.time()
         outputs = model.generate(**inputs, generation_config=gen_config)
-        response = tokenizer.batch_decode(outputs)[0]
-        print(f"Non-compiled response: {response}")
-        # outputs = model(**inputs)
-        # print(f"Non-compiled: {outputs.logits}")
+        end = time.time()
+        print(
+            f"Non-compiled generation of 128 tok seqlen took {end - start:.2f} seconds"
+        )
+        # response = tokenizer.batch_decode(outputs)[0]
+        # print(f"Non-compiled response: {response}")
 
-        model.to("cpu")
+        model: LlamaModel = AutoModelForCausalLM.from_pretrained(
+            self.model_name, torch_dtype=torch.float16
+        )
         compiled = proteus(model)
 
-        inputs.to("cpu")
-        compiled_outputs = compiled.generate(**inputs, generation_config=gen_config)
-        response = tokenizer.batch_decode(compiled_outputs)[0]
-        print(f"Compiled response: {response}")
-        # compiled_outputs = compiled(**inputs)
-        # print(f"Non-compiled: {compiled_outputs.logits}")
-
-        # Get sorted indices for comparison
-        # torch_sorted_indices = torch.argsort(outputs.logits.flatten(), descending=True)
-        # compiled_sorted_indices = torch.argsort(
-        #     compiled_outputs.logits.flatten(), descending=True
-        # )
-        # print(f"\nTop 10 indices torch: {torch_sorted_indices[:10]}")
-        # print(f"Top 10 indices compiled: {compiled_sorted_indices[:10]}")
+        # warmup run for compiler
+        print(f"Compiling HF {self.model_name} with Proteus...")
+        compiled.generate(**inputs_cpu, generation_config=gen_config)
+        start = time.time()
+        compiled_outputs = compiled.generate(**inputs_cpu, generation_config=gen_config)
+        end = time.time()
+        print(
+            f"Proteus-compiled generation of 128 tok seqlen took {end - start:.2f} seconds"
+        )
+        # response = tokenizer.batch_decode(compiled_outputs)[0]
+        # print(f"Compiled response: {response}")
 
     # def export_llama_getattr():
     #     model_name = "meta-llama/Llama-3.2-1B"

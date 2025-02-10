@@ -1,5 +1,6 @@
 from typing import Dict, Union, TypeVar, List
 import logging
+import time
 
 import torch.nn as nn
 import torch.fx as fx
@@ -75,7 +76,6 @@ def mlx_compiler(
                 for out in outs
             )
 
-        print("proc'd proteus compiler")
         return torch_wrapper
 
     return _mlx_compiler
