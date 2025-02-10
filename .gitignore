@@ -8,3 +8,5 @@ __pycache__/
 *.metallib
 *.dylib
 c_extensions/build/
+
+scratch/
