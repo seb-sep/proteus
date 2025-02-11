@@ -11,7 +11,7 @@ from test_modules import (
     TestGraphBreakModule,
 )
 from proteus import proteus
-from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
+from proteus.utils.utils import coerce_torch_to_mx, coerce_mx_to_torch
 
 
 def flatten(obj) -> tuple:

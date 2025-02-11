@@ -1,6 +1,5 @@
 from typing import Dict, Union, TypeVar, List
 import logging
-import time
 
 import torch.nn as nn
 import torch.fx as fx
@@ -11,7 +10,7 @@ import mlx.core as mx
 
 from proteus.mlx_ast.mlx_builder import MLXASTBuilder
 from proteus.mlx_ast.mutable_args import get_mut_arg_indices
-from proteus.utils import coerce_torch_to_mx, coerce_mx_to_torch
+from proteus.utils.utils import coerce_torch_to_mx, coerce_mx_to_torch
 from proteus.specializations.hf_llm import maybe_wrap_hf_generate
 
 MLX_DEVICE = mx.default_device()

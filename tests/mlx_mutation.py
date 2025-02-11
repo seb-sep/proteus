@@ -3,7 +3,7 @@ import torch
 
 import unittest
 
-from proteus.utils import coerce_mx_to_torch, coerce_torch_to_mx
+from proteus.utils.utils import coerce_mx_to_torch, coerce_torch_to_mx
 
 
 def mutate_slice(x: mx.array) -> mx.array:

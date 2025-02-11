@@ -1,7 +1,7 @@
 import mlx.core as mx
 import torch
 
-from proteus.utils import coerce_mx_to_torch, coerce_torch_to_mx
+from proteus.utils.utils import coerce_mx_to_torch, coerce_torch_to_mx
 from c_extensions.build import ptr_to_mlx
 
 mx.set_default_device(mx.gpu)

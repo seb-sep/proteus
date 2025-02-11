@@ -39,6 +39,8 @@ from proteus.custom_ops import (
 
 from proteus.mlx_ast.custom_lowerings import custom_lowerings_map
 
+COMPILED_FN_NAME = "cool_mlx_fn"
+
 aten = torch.ops.aten
 logger = logging.getLogger(__file__)
 
@@ -263,7 +265,7 @@ class MLXASTBuilder:
         self.calls.append(self.ret)
 
         mlx_func = ast.FunctionDef(
-            name="cool_mlx_fn",
+            name=COMPILED_FN_NAME,
             args=ast.arguments(
                 posonlyargs=[],
                 args=self.in_args,

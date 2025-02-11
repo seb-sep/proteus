@@ -15,7 +15,7 @@ except ImportError:
     hf_available = False
 
 
-from proteus.utils import coerce_mx_to_torch, coerce_torch_to_mx
+from proteus.utils.utils import coerce_mx_to_torch, coerce_torch_to_mx
 
 
 T = TypeVar("T", bound=nn.Module)

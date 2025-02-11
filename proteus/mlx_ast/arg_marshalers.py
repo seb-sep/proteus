@@ -6,7 +6,7 @@ import sys
 from torch.fx import Node, Graph, immutable_collections
 import torch
 
-from proteus.utils import torch_dtype_map
+from proteus.utils.utils import torch_dtype_map
 
 
 def module_strs_to_ast(module_strs: List[str]) -> Union[ast.Name, ast.Attribute]:

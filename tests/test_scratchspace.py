@@ -14,7 +14,11 @@ from diffusers import StableDiffusion3Pipeline
 from tqdm import tqdm
 
 from proteus.proteus import proteus, proteus_no_compile
-from proteus.utils import aten_opset_compiler, coerce_mx_to_torch, coerce_torch_to_mx
+from proteus.utils.utils import (
+    aten_opset_compiler,
+    coerce_mx_to_torch,
+    coerce_torch_to_mx,
+)
 from proteus.mlx_ast.mlx_builder import DefaultInterpreter
 from tests.test_modules import (
     TestModule,
