@@ -12,6 +12,7 @@ from proteus.mlx_ast.mlx_builder import MLXASTBuilder
 from proteus.mlx_ast.mutable_args import get_mut_arg_indices
 from proteus.utils.utils import coerce_torch_to_mx, coerce_mx_to_torch
 from proteus.specializations.hf_llm import maybe_wrap_hf_generate
+from proteus.utils.compile_cache import cache_load, cache_store
 
 MLX_DEVICE = mx.default_device()
 logger = logging.getLogger(__file__)
@@ -25,10 +26,10 @@ def mlx_compiler(
     Compile the given FX graph of aten ops into a Python function calling MLX operations.
     """
 
-    def _mlx_compiler(gm: fx.GraphModule, sample_inputs):
+    def _mlx_compiler(gm: fx.GraphModule, example_inputs):
 
         # lower graphmodule to aten operators
-        aten_graph = make_fx(gm, tracing_mode="fake")(*sample_inputs)
+        aten_graph = make_fx(gm, tracing_mode="fake")(*example_inputs)
 
         # collect data on mutated args in the ast
         mutable_input_idxs = get_mut_arg_indices(aten_graph.graph)
@@ -36,7 +37,11 @@ def mlx_compiler(
         static_torch_params_buffers: Dict[mx.array]
 
         # lower aten graph to a python AST
-        mlx_fn = MLXASTBuilder().lower_to_python(aten_graph.graph)
+        if not (mlx_fn := cache_load(gm, example_inputs)):
+            builder = MLXASTBuilder()
+            mlx_fn = builder.lower_to_python(aten_graph.graph)
+            cache_store(gm, example_inputs, builder.compiled_code)
+
         # mlx_fn = mx.compile(mlx_fn)
 
         # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
@@ -96,7 +101,7 @@ def replace_param_with_mlx(
     (a torch tensor initialized with the same data pointer as the MLX array)
     """
 
-    logger.info("replacing model params with MLX-backed tensors...")
+    # logger.info("replacing model params with MLX-backed tensors...")
     # I guess this should just work with params instead of tensors??? if not we can cast to the superclass
     mlx_param = coerce_torch_to_mx(param)
     torch_digital_twin = nn.Parameter(coerce_mx_to_torch(mlx_param))
@@ -140,9 +145,13 @@ def replace_buffer_with_mlx(
 T = TypeVar("T", bound=nn.Module)
 
 
+# TODO: look more into torchinductor parameter freezing for memory efficiency opportunities
 def proteus(mod: T) -> T:
 
     # inference only for now
+    # Oh shooot .eval() is just for crap like dropouts
+    # also need turn off requires_grad on the tensors, but doing it here pre-dynamo causes crazy
+    # autograd errors, wonder if there's some way to turn off compiling backward pass for now?
     mod.eval()
 
     # generate static mlx array 'twins' of all the params in the module

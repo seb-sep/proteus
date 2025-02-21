@@ -1,4 +1,4 @@
-from typing import Callable, List, Dict, Any, Tuple, Union
+from typing import Callable, List, Dict, Any, Tuple, Union, Optional
 import operator
 import ast
 import logging
@@ -38,8 +38,8 @@ from proteus.custom_ops import (
 )
 
 from proteus.mlx_ast.custom_lowerings import custom_lowerings_map
+from proteus.utils.compile_cache import COMPILED_FN_NAME
 
-COMPILED_FN_NAME = "cool_mlx_fn"
 
 aten = torch.ops.aten
 logger = logging.getLogger(__file__)
@@ -176,6 +176,7 @@ class MLXASTBuilder:
         self.calls: List[ast.AST] = []
         self.device = mx.default_device()
         self.ret: ast.Return = None
+        self.compiled_code: Optional[str] = None
 
     def lower_to_python(
         self, graph: Graph
@@ -279,14 +280,9 @@ class MLXASTBuilder:
 
         module = ast.Module(body=self.imports + [mlx_func], type_ignores=[])
         ast.fix_missing_locations(module)
-        generated_code = ast.unparse(module)
-        filename = os.path.expanduser("~/.cache/proteus/compiled_mlx_fn.py")
-        logger.debug(f"Generated Python code:\n{generated_code}")
-        with open(filename, "w") as f:
-            f.write(generated_code)
-
-        code = compile(generated_code, filename, "exec")
+        self.compiled_code = ast.unparse(module)
+        logger.debug(f"Generated Python code:\n{self.compiled_code[:100]}...")
         namespace = {}
-        exec(code, namespace)
+        exec(self.compiled_code, namespace)
 
         return namespace[mlx_func.name]

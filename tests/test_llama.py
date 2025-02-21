@@ -3,6 +3,7 @@ import os
 from copy import deepcopy
 from typing import Tuple
 import time
+import logging
 
 from transformers import (
     AutoModelForCausalLM,
@@ -32,6 +33,9 @@ from proteus import proteus
 from automated_tests import TestProteus
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"  # silence warnings when compiling
+
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 class TestLlama(TestProteus):
@@ -301,8 +305,8 @@ class TestLlama(TestProteus):
         print(
             f"Non-compiled generation of 128 tok seqlen took {end - start:.2f} seconds"
         )
-        # response = tokenizer.batch_decode(outputs)[0]
-        # print(f"Non-compiled response: {response}")
+        response = tokenizer.batch_decode(outputs)[0]
+        print(f"Non-compiled response: {response}")
 
         model: LlamaModel = AutoModelForCausalLM.from_pretrained(
             self.model_name, torch_dtype=torch.float16
@@ -318,8 +322,8 @@ class TestLlama(TestProteus):
         print(
             f"Proteus-compiled generation of 128 tok seqlen took {end - start:.2f} seconds"
         )
-        # response = tokenizer.batch_decode(compiled_outputs)[0]
-        # print(f"Compiled response: {response}")
+        response = tokenizer.batch_decode(compiled_outputs)[0]
+        print(f"Compiled response: {response}")
 
     # def export_llama_getattr():
     #     model_name = "meta-llama/Llama-3.2-1B"
