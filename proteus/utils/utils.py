@@ -31,11 +31,10 @@ torch_dtype_map: Dict[torch.dtype, mx.Dtype] = {
 def coerce_torch_to_mx(val: torch.Tensor) -> mx.array:
     """
     Convert some PyTorch value into an MLX array.
-    Note that this currently COPIES the tensor, so use sparingly.
     """
 
-    logger.debug("coercing torch to mlx")
-    return mx.array(val.numpy(force=True))
+    # logger.debug("coercing torch to mlx")
+    return mx.array(val.detach().numpy(force=False))
 
 
 mlx_dtype_map: Dict[torch.dtype, mx.Dtype] = {
@@ -57,7 +56,7 @@ def coerce_mx_to_torch(val: mx.array, out: torch.Tensor = None) -> torch.Tensor:
     If passed a torch tensor, will update that tensor in-place with the MLX array's data
     instead of creating a new torch tensor object.
     """
-    logger.debug("coercing mlx to torch")
+    # logger.debug("coercing mlx to torch")
     val = contiguous(val)
     strides = get_strides(val)
     # NOTE: the below is no longer necessary because we can force mlx arrays
