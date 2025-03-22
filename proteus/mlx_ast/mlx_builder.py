@@ -28,6 +28,9 @@ from proteus.mlx_ast.arg_marshalers import (
     any_arg_marshaler,
     sum_arg_marshaler,
     _softmax_arg_marshaler,
+    zeros_arg_marshaler,
+    cumsum_arg_marshaler,
+    oneslike_arg_marshaler,
 )
 
 from proteus.custom_ops import (
@@ -35,6 +38,8 @@ from proteus.custom_ops import (
     custom_split,
     custom_sdpa,
     masked_fill_scalar,
+    custom_take,
+    custom_new_ones,
 )
 
 from proteus.mlx_ast.custom_lowerings import custom_lowerings_map
@@ -67,16 +72,22 @@ _aten_mlx_mapping: Dict[
     aten.mul_.Tensor: (mx.multiply, passthrough_arg_marshaler),
     aten.div.Tensor: (mx.divide, passthrough_arg_marshaler),
     aten.add.Tensor: (mx.add, passthrough_arg_marshaler),
+    aten.sub.Tensor: (mx.subtract, passthrough_arg_marshaler),
     aten.exp.default: (mx.exp, passthrough_arg_marshaler),
     aten.gt.Tensor: (mx.greater, passthrough_arg_marshaler),
+    aten.ge.Scalar: (mx.greater_equal, passthrough_arg_marshaler),
     aten.neg.default: (mx.negative, passthrough_arg_marshaler),
     aten.cos.default: (mx.cos, passthrough_arg_marshaler),
     aten.sin.default: (mx.sin, passthrough_arg_marshaler),
     aten.rsqrt.default: (mx.rsqrt, passthrough_arg_marshaler),
     aten.cat.default: (mx.concatenate, passthrough_arg_marshaler),
-    aten.select.int: (mx.take, take_arg_marshaler),
+    # aten.select.int: (mx.take, take_arg_marshaler),
+    aten.select.int: (custom_take, passthrough_arg_marshaler),
     aten.eq.Scalar: (mx.equal, passthrough_arg_marshaler),
+    aten.zeros.default: (mx.zeros, zeros_arg_marshaler),
+    aten.ones_like.default: (mx.ones_like, oneslike_arg_marshaler),
     aten.embedding.default: (mx.array.__getitem__, passthrough_arg_marshaler),
+    aten.cumsum.default: (mx.cumsum, cumsum_arg_marshaler),
     # aten.linear.default: (custom_ops.linear, passthrough_arg_marshaler),
     # is it ok to have multiple aten ops map to the same mlx fn like this?
     # NOTE: remember that you ran into issues with what to do with device kwarg for arange
@@ -99,6 +110,7 @@ _aten_mlx_mapping: Dict[
     # implement _to_copy later when we have a better idea of what the heck it does
     # aten._to_copy.default: (mx.array.__copy__, clone_arg_marshaler),
     aten.masked_fill.Scalar: (masked_fill_scalar, passthrough_arg_marshaler),
+    aten.masked_fill_.Scalar: (masked_fill_scalar, passthrough_arg_marshaler),
     # aten.slice_scatter.default: (custom_ops.slice_scatter, passthrough_arg_marshaler),
     # TODO: SHOOT conv2d for torch has shapes input (batch, Cin, H, W), weight (Cout, Cin, H, W),
     # but MLX conv2d has shapes input (batch, H, W, Cin), weight (Cout, H, W, Cin)
@@ -116,6 +128,9 @@ _aten_mlx_mapping: Dict[
     # this neeeds to be handled custom to dispatch properly on different types
     operator.getitem: (operator.getitem, passthrough_arg_marshaler),
     operator.add: (operator.add, passthrough_arg_marshaler),
+    operator.neg: (operator.neg, passthrough_arg_marshaler),
+    operator.lt: (operator.lt, passthrough_arg_marshaler),
+    operator.ge: (operator.ge, passthrough_arg_marshaler),
     aten.layer_norm.default: (mx.fast.layer_norm, layernorm_arg_marshaler),
     aten.pow.Tensor_Scalar: (mx.power, passthrough_arg_marshaler),
     aten.mean.dim: (mx.mean, mean_arg_marshaler),
@@ -125,6 +140,8 @@ _aten_mlx_mapping: Dict[
     aten.any.dim: (mx.any, any_arg_marshaler),
     aten.sum.default: (mx.sum, sum_arg_marshaler),
     aten._softmax.default: (mx.softmax, _softmax_arg_marshaler),
+    aten.new_ones.default: (custom_new_ones, passthrough_arg_marshaler),
+    aten.bitwise_or.Tensor: (mx.bitwise_or, passthrough_arg_marshaler),
 }
 
 

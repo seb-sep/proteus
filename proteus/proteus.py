@@ -1,10 +1,12 @@
-from typing import Dict, Union, TypeVar, List
+from typing import Dict, Union, TypeVar, List, Callable
 import logging
 
 import torch.nn as nn
 import torch.fx as fx
 import torch
 from torch.fx.experimental.proxy_tensor import make_fx
+
+from transformers import GenerationMixin
 
 import mlx.core as mx
 
@@ -20,13 +22,15 @@ logger = logging.getLogger(__file__)
 
 # Close over the mlx_params to pass in the final compiled fn
 def mlx_compiler(
-    static_mlx_params_buffers: Dict[Union[nn.Parameter, torch.Tensor], mx.array]
+    static_mlx_params_buffers: Dict[Union[nn.Parameter, torch.Tensor], mx.array],
 ):
     """
     Compile the given FX graph of aten ops into a Python function calling MLX operations.
     """
 
-    def _mlx_compiler(gm: fx.GraphModule, example_inputs):
+    def _mlx_compiler(
+        gm: fx.GraphModule, example_inputs
+    ) -> Callable[[List[torch.Tensor]], List[torch.Tensor]]:
 
         # lower graphmodule to aten operators
         aten_graph = make_fx(gm, tracing_mode="fake")(*example_inputs)
@@ -34,7 +38,11 @@ def mlx_compiler(
         # collect data on mutated args in the ast
         mutable_input_idxs = get_mut_arg_indices(aten_graph.graph)
 
-        static_torch_params_buffers: Dict[mx.array]
+        # mutable_mlx_arrs = [
+        #     static_mlx_params_buffers[example_inputs[i]]
+        #     for i in mutable_input_idxs
+        #     if example_inputs[i] in static_mlx_params_buffers
+        # ]
 
         # lower aten graph to a python AST
         if not (mlx_fn := cache_load(gm, example_inputs)):
@@ -42,7 +50,11 @@ def mlx_compiler(
             mlx_fn = builder.lower_to_python(aten_graph.graph)
             cache_store(gm, example_inputs, builder.compiled_code)
 
-        # mlx_fn = mx.compile(mlx_fn)
+        # mlx_fn = mx.compile(
+        #     mlx_fn,
+        #     inputs=mutable_mlx_arrs,
+        #     outputs=mutable_mlx_arrs,
+        # )
 
         # Wrap the MLX function to convert the appropriate inputs and outputs to MLX arrays
         # TODO: is there any way to avoid unpacking and repacking the args tuple on each forward call?
@@ -172,8 +184,15 @@ def proteus(mod: T) -> T:
     # forward for now as long as I intercept the cache used in generate
     # therefore, the generate method must still be wrapped
     # there will probably be more specializations like this in the future for diff models
-    mod = maybe_wrap_hf_generate(mod, static_mlx_parameters_buffers)
+    # mod = maybe_wrap_hf_generate(mod, static_mlx_parameters_buffers)
 
+    # if isinstance(mod, GenerationMixin):
+    #     mod.generate = torch.compile(
+    #         mod.generate,
+    #         backend=mlx_compiler(static_mlx_parameters_buffers),
+    #         dynamic=True,
+    #     )
+    # else:
     mod.forward = torch.compile(
         mod.forward, backend=mlx_compiler(static_mlx_parameters_buffers)
     )

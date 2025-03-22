@@ -29,7 +29,10 @@ def convert_arg_to_ast(arg) -> ast.AST:
         return ast.Name(id=arg.name, ctx=ast.Load())
     elif isinstance(arg, torch.dtype):
         mlx_dtype = torch_dtype_map[arg]
-        return module_strs_to_ast(str(mlx_dtype).split("."))
+        strs = str(mlx_dtype).split(".")
+        if strs[-1] == "bool":
+            strs[-1] = "bool_"
+        return module_strs_to_ast(strs)
     # for now, force devices to be gpu (after all, we don't know why some ops might have been)
     # on cpu for macos in the first place, probably crap about unsupported ops on mac gpu
     elif isinstance(arg, torch.device):
@@ -118,6 +121,35 @@ def arange_arg_marshaler(
 
     return passthrough_arg_marshaler(
         args, {k: v for k, v in kwargs.items() if k not in ("device", "pin_memory")}
+    )
+
+
+def zeros_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+
+    new_kwargs = {k: v for k, v in kwargs.items() if k not in ("device", "pin_memory")}
+
+    return passthrough_arg_marshaler(args, new_kwargs)
+
+
+def cumsum_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+
+    new_kwargs = {k: v for k, v in kwargs.items() if k != "dim"}
+    if "dim" in kwargs:
+        new_kwargs["axis"] = kwargs["dim"]
+
+    return passthrough_arg_marshaler(args, new_kwargs)
+
+
+def oneslike_arg_marshaler(
+    args: List[Node], kwargs: Dict
+) -> Tuple[List[ast.AST], List[ast.keyword]]:
+
+    return passthrough_arg_marshaler(
+        args, {k: v for k, v in kwargs.items() if k not in ("pin_memory", "dtype")}
     )
 
 

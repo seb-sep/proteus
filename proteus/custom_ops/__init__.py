@@ -25,9 +25,6 @@ def custom_sdpa(
             mx.full((q.shape[-2], k.shape[-2]), -float("inf"), dtype=q.dtype), k=1
         )
 
-    # FIXME: hack for now, but because torch cpu flashattn returns a tuple of the attn and lse,
-    # it adds getitems to the fx graph to destructure the tuple, we want the getitem to retrieve
-    # the full scores in the cpu case
     attn = mx.fast.scaled_dot_product_attention(q, k, v, scale=scale, mask=attn_mask)
     return (attn, mx.array([])) if is_cpu else attn
 
@@ -50,6 +47,21 @@ def custom_split(
         for i in range(1, len(split_size_or_sections) + 1)
     )
     return mx.split(a, indices, dim)
+
+
+def custom_take(a: mx.array, dim: int, index: int):
+    index = a.shape[dim] - 1 if index == -1 else index
+    return mx.take(a, index, dim)
+
+
+def custom_new_ones(
+    a: mx.array, size, dtype=None, layout=None, device=None, pin_memory=None
+):
+    # ignore rest of args for now
+    return mx.ones(
+        size,
+        dtype=(dtype if dtype is not None else a.dtype),
+    )
 
 
 # NOTE: whether or not you will have a bias is technically statically known,

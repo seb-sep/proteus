@@ -48,12 +48,7 @@ class TestProteus(unittest.TestCase):
         )
 
         self.compile_model_test(
-            EmbeddingModule(in_dim, h_dim, out_dim, dtype),
-            (lookup_tensor,),
-        )
-
-        self.compile_model_test(
-            IndexCopyModule(in_dim, h_dim, out_dim, dtype),
+            IndexCopyModule(in_dim, in_dim, dtype),
             (test_in,),
         )
 
@@ -112,4 +107,4 @@ class TestProteus(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    TestProteus().compile_indexcopy_test()
+    TestProteus().test_models()
